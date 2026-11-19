@@ -29,6 +29,20 @@ namespace Cliport
         [DllImport("user32.dll")] public static extern bool UnregisterHotKey(IntPtr h, int id);
         [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
         [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
+        [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
+        [DllImport("user32.dll")] public static extern IntPtr GetOpenClipboardWindow();
+        [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
+        /// <summary>Name of the process that currently has the clipboard open (i.e. the one pasting).</summary>
+        public static string ClipboardReader()
+        {
+            try
+            {
+                IntPtr w = GetOpenClipboardWindow(); if (w == IntPtr.Zero) return "";
+                uint pid; GetWindowThreadProcessId(w, out pid); if (pid == 0) return "";
+                using (var p = System.Diagnostics.Process.GetProcessById((int)pid)) return p.ProcessName.ToLowerInvariant();
+            }
+            catch { return ""; }
+        }
         [DllImport("kernel32.dll")] public static extern IntPtr GlobalAlloc(uint flags, UIntPtr size);
         [DllImport("kernel32.dll")] public static extern IntPtr GlobalLock(IntPtr h);
         [DllImport("kernel32.dll")] public static extern bool GlobalUnlock(IntPtr h);
@@ -134,6 +148,11 @@ namespace Cliport
                 Thread.Sleep(40);
             }
             return false;
+        }
+        /// <summary>Places a promise of remote files (see VirtualFiles) on the clipboard without rendering anything.</summary>
+        public bool OfferVirtualFiles(object comDataObject)
+        {
+            bool ok = Retry(delegate { Clipboard.SetDataObject(comDataObject, false, 5, 40); }); Mark(); return ok;
         }
         public void Dispose2() { try { Native.RemoveClipboardFormatListener(Handle); DestroyHandle(); } catch { } }
     }
@@ -359,11 +378,27 @@ namespace Cliport
             Heartbeat();
             try { Native.RegisterApplicationRestart("--recovered --data \"" + App.DataDir + "\"", 0); } catch { }
         }
+        public static bool Exiting; static long endingAt;
         public static void CleanExit()
         {
             try { File.WriteAllText(P("clean-exit.flag"), "1"); File.Delete(P("running.flag")); } catch { }
         }
-        public static void Heartbeat() { try { File.WriteAllText(P("heartbeat"), App.Now().ToString()); } catch { } }
+        /// <summary>Windows is logging off / shutting down: that is a clean stop, not a crash.</summary>
+        public static void SessionEnding() { endingAt = App.Now(); CleanExit(); Log.Write("session ending - marked as clean exit"); }
+        public static void Heartbeat()
+        {
+            try
+            {
+                File.WriteAllText(P("heartbeat"), App.Now().ToString());
+                // shutdown was cancelled and we are still running: go back to the "running" state
+                if (!Exiting && endingAt != 0 && App.Now() - endingAt > 120000)
+                {
+                    endingAt = 0; File.Delete(P("clean-exit.flag"));
+                    File.WriteAllText(P("running.flag"), Process.GetCurrentProcess().Id.ToString());
+                }
+            }
+            catch { }
+        }
 
         public static void EnsureWatchdog()
         {
@@ -419,6 +454,78 @@ namespace Cliport
                 return 0;
             }
         }
+    }
+
+    /// <summary>
+    /// Remote files on the clipboard as "virtual files" (FileGroupDescriptorW + FileContents), the same mechanism
+    /// Remote Desktop uses. Explorer reads the descriptor (name, size) eagerly, but asks for the contents only when
+    /// the user really pastes - which is when the confirmation and the download happen.
+    /// </summary>
+    [ComVisible(true)]
+    sealed class VirtualFiles : System.Runtime.InteropServices.ComTypes.IDataObject
+    {
+        readonly System.Runtime.InteropServices.ComTypes.IDataObject inner;
+        readonly Func<int, string> materialize;      // file index -> local path (null = declined / failed)
+        static readonly short CfContents = (short)DataFormats.GetFormat("FileContents").Id;
+        [DllImport("shlwapi.dll", CharSet = CharSet.Unicode)]
+        static extern int SHCreateStreamOnFileEx(string file, uint mode, uint attrs, bool create, IntPtr template, out System.Runtime.InteropServices.ComTypes.IStream stream);
+
+        public VirtualFiles(Offer o, Func<int, string> materialize)
+        {
+            this.materialize = materialize;
+            var d = new DataObject();
+            d.SetData("FileGroupDescriptorW", new MemoryStream(Descriptor(o)));
+            d.SetData("FileContents", new MemoryStream(new byte[1]));              // placeholder so the format is listed
+            d.SetData("Preferred DropEffect", new MemoryStream(new byte[] { 1, 0, 0, 0 }));
+            d.SetData("ExcludeClipboardContentFromMonitorProcessing", new MemoryStream(new byte[4]));
+            d.SetData("CanIncludeInClipboardHistory", new MemoryStream(new byte[4]));
+            d.SetData("CanUploadToCloudClipboard", new MemoryStream(new byte[4]));
+            inner = d;
+        }
+        static byte[] Descriptor(Offer o)
+        {
+            const int Size = 592;                                                  // sizeof(FILEDESCRIPTORW)
+            var b = new byte[4 + Size * o.Files.Count];
+            BitConverter.GetBytes(o.Files.Count).CopyTo(b, 0);
+            for (int i = 0; i < o.Files.Count; i++)
+            {
+                int off = 4 + i * Size; var f = o.Files[i];
+                BitConverter.GetBytes(unchecked((int)(0x00000004 | 0x00000040 | 0x00004000 | 0x80000000))).CopyTo(b, off);   // ATTRIBUTES | FILESIZE | PROGRESSUI | UNICODE
+                BitConverter.GetBytes(0x80).CopyTo(b, off + 36);                   // FILE_ATTRIBUTE_NORMAL
+                BitConverter.GetBytes((uint)(f.Size >> 32)).CopyTo(b, off + 64);
+                BitConverter.GetBytes((uint)(f.Size & 0xFFFFFFFF)).CopyTo(b, off + 68);
+                byte[] name = Encoding.Unicode.GetBytes(f.Name.Length > 259 ? f.Name.Substring(0, 259) : f.Name);
+                Array.Copy(name, 0, b, off + 72, name.Length);
+            }
+            return b;
+        }
+        public void GetData(ref System.Runtime.InteropServices.ComTypes.FORMATETC format, out System.Runtime.InteropServices.ComTypes.STGMEDIUM medium)
+        {
+            if (format.cfFormat != CfContents) { inner.GetData(ref format, out medium); return; }
+            medium = new System.Runtime.InteropServices.ComTypes.STGMEDIUM();
+            if ((format.tymed & System.Runtime.InteropServices.ComTypes.TYMED.TYMED_ISTREAM) == 0) Marshal.ThrowExceptionForHR(unchecked((int)0x80040069));   // DV_E_TYMED
+            string path = null;
+            try { path = materialize(format.lindex); } catch (Exception e) { Log.Write("materialize: " + e); }
+            if (path == null) throw new COMException("declined", unchecked((int)0x80004004));                                                              // E_ABORT
+            System.Runtime.InteropServices.ComTypes.IStream s;
+            int hr = SHCreateStreamOnFileEx(path, 0x20 /* STGM_READ | STGM_SHARE_DENY_WRITE */, 0, false, IntPtr.Zero, out s);
+            if (hr != 0) Marshal.ThrowExceptionForHR(hr);
+            medium.tymed = System.Runtime.InteropServices.ComTypes.TYMED.TYMED_ISTREAM;
+            medium.unionmember = Marshal.GetComInterfaceForObject(s, typeof(System.Runtime.InteropServices.ComTypes.IStream));
+            medium.pUnkForRelease = null;
+        }
+        public int QueryGetData(ref System.Runtime.InteropServices.ComTypes.FORMATETC format)
+        {
+            if (format.cfFormat == CfContents) return (format.tymed & System.Runtime.InteropServices.ComTypes.TYMED.TYMED_ISTREAM) != 0 ? 0 : unchecked((int)0x80040069);
+            return inner.QueryGetData(ref format);
+        }
+        public void GetDataHere(ref System.Runtime.InteropServices.ComTypes.FORMATETC format, ref System.Runtime.InteropServices.ComTypes.STGMEDIUM medium) { inner.GetDataHere(ref format, ref medium); }
+        public int GetCanonicalFormatEtc(ref System.Runtime.InteropServices.ComTypes.FORMATETC formatIn, out System.Runtime.InteropServices.ComTypes.FORMATETC formatOut) { return inner.GetCanonicalFormatEtc(ref formatIn, out formatOut); }
+        public void SetData(ref System.Runtime.InteropServices.ComTypes.FORMATETC formatIn, ref System.Runtime.InteropServices.ComTypes.STGMEDIUM medium, bool release) { inner.SetData(ref formatIn, ref medium, release); }
+        public System.Runtime.InteropServices.ComTypes.IEnumFORMATETC EnumFormatEtc(System.Runtime.InteropServices.ComTypes.DATADIR direction) { return inner.EnumFormatEtc(direction); }
+        public int DAdvise(ref System.Runtime.InteropServices.ComTypes.FORMATETC pFormatetc, System.Runtime.InteropServices.ComTypes.ADVF advf, System.Runtime.InteropServices.ComTypes.IAdviseSink adviseSink, out int connection) { return inner.DAdvise(ref pFormatetc, advf, adviseSink, out connection); }
+        public void DUnadvise(int connection) { inner.DUnadvise(connection); }
+        public int EnumDAdvise(out System.Runtime.InteropServices.ComTypes.IEnumSTATDATA enumAdvise) { return inner.EnumDAdvise(out enumAdvise); }
     }
 
     static class Autostart

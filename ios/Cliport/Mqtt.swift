@@ -44,7 +44,7 @@ final class MqttLink {
     func stop() { stopped = true; teardown() }
     /// Self-healing: drop a link that has been silent (no ping replies) and reconnect right away.
     func healIfStale() {
-        if up && Date().timeIntervalSince(lastRx) > 70 { Log.write("healing stale relay \(host)"); dropped(gen) }
+        if up && Date().timeIntervalSince(lastRx) > 32 { Log.write("healing stale relay \(host)"); dropped(gen) }
         else if !up && conn == nil && !stopped { connect() }
     }
     func kick() { backoff = 1.0; dropped(gen) }
@@ -136,7 +136,7 @@ final class MqttLink {
             up = true; backoff = 1.0
             Log.write("relay up: \(host)")
             pingTimer?.invalidate()
-            pingTimer = Timer.scheduledTimer(withTimeInterval: 20, repeats: true) { [weak self] _ in self?.send(0xC0, []) }
+            pingTimer = Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { [weak self] _ in self?.send(0xC0, []) }
             onState?(self)
         case 3:   // PUBLISH
             guard b.count >= 2 else { return }

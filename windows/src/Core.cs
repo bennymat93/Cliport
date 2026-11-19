@@ -173,7 +173,7 @@ namespace Cliport
     /// <summary>
     /// End-to-end encryption. All devices share a 128-bit secret (the pairing code).
     /// Keys: HKDF-SHA256(secret, salt "Cliport-v1", info "enc" | "mac" | "topic").
-    /// Envelope: 0x01 | IV(16) | AES-256-CBC(PKCS7) | HMAC-SHA256(0x01|IV|CT). The relay sees only ciphertext.
+    /// Envelope: VER | IV(16) | AES-256-CBC(PKCS7) | HMAC-SHA256(VER|IV|CT). VER 1 = plain, 2 = raw-deflate compressed. The relay sees only ciphertext.
     /// </summary>
     sealed class KeyRing
     {
@@ -207,14 +207,39 @@ namespace Cliport
             for (int i = 0; i < code.Length; i++) { if (i > 0 && i % 5 == 0) sb.Append('-'); sb.Append(code[i]); }
             return sb.ToString();
         }
-        public byte[] Seal(byte[] plain)
+        static byte[] Deflate(byte[] data)
         {
+            using (var ms = new MemoryStream())
+            {
+                using (var z = new System.IO.Compression.DeflateStream(ms, System.IO.Compression.CompressionMode.Compress, true)) z.Write(data, 0, data.Length);
+                return ms.ToArray();
+            }
+        }
+        static byte[] Inflate(byte[] data)
+        {
+            using (var src = new MemoryStream(data)) using (var z = new System.IO.Compression.DeflateStream(src, System.IO.Compression.CompressionMode.Decompress)) using (var dst = new MemoryStream())
+            {
+                var buf = new byte[65536]; int n;
+                while ((n = z.Read(buf, 0, buf.Length)) > 0) { dst.Write(buf, 0, n); if (dst.Length > 64 * 1024 * 1024) throw new InvalidDataException("too large"); }
+                return dst.ToArray();
+            }
+        }
+        public byte[] Seal(byte[] plain) { return Seal(plain, true); }
+        /// <summary>compress=true: the payload is deflated first when that makes it smaller (less data on weak links).</summary>
+        public byte[] Seal(byte[] plain, bool compress)
+        {
+            byte ver = 1;
+            if (compress && plain.Length >= 200)
+            {
+                byte[] z = Deflate(plain);
+                if (z.Length < plain.Length - plain.Length / 10) { plain = z; ver = 2; }
+            }
             using (var aes = Aes.Create())
             {
                 aes.KeySize = 256; aes.Mode = CipherMode.CBC; aes.Padding = PaddingMode.PKCS7; aes.Key = encKey; aes.GenerateIV();
                 byte[] ct; using (var e = aes.CreateEncryptor()) ct = e.TransformFinalBlock(plain, 0, plain.Length);
                 var o = new byte[1 + 16 + ct.Length + 32];
-                o[0] = 1; Array.Copy(aes.IV, 0, o, 1, 16); Array.Copy(ct, 0, o, 17, ct.Length);
+                o[0] = ver; Array.Copy(aes.IV, 0, o, 1, 16); Array.Copy(ct, 0, o, 17, ct.Length);
                 using (var h = new HMACSHA256(macKey)) { var tag = h.ComputeHash(o, 0, 17 + ct.Length); Array.Copy(tag, 0, o, 17 + ct.Length, 32); }
                 return o;
             }
@@ -223,7 +248,7 @@ namespace Cliport
         {
             try
             {
-                if (env == null || env.Length < 1 + 16 + 16 + 32 || env[0] != 1) return null;
+                if (env == null || env.Length < 1 + 16 + 16 + 32 || (env[0] != 1 && env[0] != 2)) return null;
                 int n = env.Length - 32;
                 byte[] tag; using (var h = new HMACSHA256(macKey)) tag = h.ComputeHash(env, 0, n);
                 int diff = 0; for (int i = 0; i < 32; i++) diff |= tag[i] ^ env[n + i];
@@ -232,7 +257,8 @@ namespace Cliport
                 {
                     aes.KeySize = 256; aes.Mode = CipherMode.CBC; aes.Padding = PaddingMode.PKCS7; aes.Key = encKey;
                     var iv = new byte[16]; Array.Copy(env, 1, iv, 0, 16); aes.IV = iv;
-                    using (var d = aes.CreateDecryptor()) return d.TransformFinalBlock(env, 17, n - 17);
+                    byte[] plain; using (var d = aes.CreateDecryptor()) plain = d.TransformFinalBlock(env, 17, n - 17);
+                    return env[0] == 2 ? Inflate(plain) : plain;
                 }
             }
             catch { return null; }

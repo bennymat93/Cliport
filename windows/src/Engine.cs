@@ -45,16 +45,21 @@ namespace Cliport
         public Func<Dictionary<string, object>> RdpInfo;
 
         long lastClipTs; string lastHash = "";
-        Dictionary<string, object> pending;
+        Dictionary<string, object> pending, lastOut;
+        readonly Dictionary<string, int> pace = new Dictionary<string, int>();     // per-transfer chunk interval (ms), grows when the receiver reports loss
+        bool netHooked; long lastNetKick;
         readonly HashSet<string> seen = new HashSet<string>(); readonly Queue<string> seenQ = new Queue<string>();
         readonly Dictionary<string, Offer> outgoing = new Dictionary<string, Offer>(); readonly Queue<string> outQ = new Queue<string>();
         readonly Dictionary<string, Rx> rxs = new Dictionary<string, Rx>();
         long lastDevPub; int lastUp = -1;
+        /// <summary>QA only: CLIPORT_TEST_DROP=N discards every Nth incoming file chunk once, to exercise re-transmission.</summary>
+        static readonly int TestDrop = ParseEnv("CLIPORT_TEST_DROP"); readonly HashSet<string> testDropped = new HashSet<string>();
+        static int ParseEnv(string n) { int v; return int.TryParse(Environment.GetEnvironmentVariable(n), out v) ? v : 0; }
 
         sealed class Rx
         {
             public Offer O; public int Idx; public string Path; public FileStream Fs; public int Total = -1, Next; public long Last;
-            public Dictionary<int, byte[]> Buf = new Dictionary<int, byte[]>();
+            public Dictionary<int, byte[]> Buf = new Dictionary<int, byte[]>(); public long LastNak;
             public Action<int> Progress; public Action<string, string> Done;
         }
 
@@ -82,13 +87,26 @@ namespace Cliport
                 var l = MqttLink.Parse(r); if (l == null) continue;
                 l.ClientIdBase = "sc" + me; l.Subs = new[] { b + "/ev", b + "/st/#", b + "/f/" + me };
                 l.WillTopic = b + "/st/dev/" + me;
-                l.WillPayload = delegate { return Keys.Seal(Encoding.UTF8.GetBytes(Json.Ser(DevMsg(false)))); };
+                l.WillPayload = delegate { var w = DevMsg(false); w["will"] = true; return Pack(w); };
                 l.OnMessage = OnWire;
-                l.OnUp = delegate { post(delegate { PublishDev(); if (pending != null) PublishClip(pending); PublishPinsIfAny(); FireStatus(); }); };
+                l.OnUp = delegate { post(delegate { PublishDev(); ReannounceClip(); PublishPinsIfAny(); FireStatus(); }); };
                 l.OnDown = delegate { post(FireStatus); };
                 Hub.Links.Add(l);
             }
             Hub.Start();
+            if (!netHooked)
+            {
+                netHooked = true;
+                // Wi-Fi / cable / VPN changed: old sockets are dead even if Windows has not noticed yet - reconnect now
+                System.Net.NetworkInformation.NetworkChange.NetworkAddressChanged += delegate
+                {
+                    post(delegate
+                    {
+                        if (Hub == null || App.Now() - lastNetKick < 3000) return;
+                        lastNetKick = App.Now(); Log.Write("network changed - reconnecting relays"); Hub.KickAll();
+                    });
+                };
+            }
             Log.Write("engine started, device " + me + ", topic " + b.Substring(0, 12) + "...");
         }
         public void Stop()
@@ -111,9 +129,30 @@ namespace Cliport
             foreach (var k in new List<string>(rxs.Keys))
             {
                 var rx = rxs[k];
-                if (now - rx.Last > 45000) FinishRx(k, "תם הזמן - המכשיר המקורי לא הגיב");
+                if (now - rx.Last > 90000) FinishRx(k, "תם הזמן - המכשיר המקורי לא הגיב");
             }
             FireStatus();
+        }
+        /// <summary>Every second: relays are best-effort, so a stalled transfer asks again for exactly the chunks it is missing.</summary>
+        public void FastTick()
+        {
+            if (Hub == null || rxs.Count == 0) return;
+            long now = App.Now();
+            foreach (var rx in new List<Rx>(rxs.Values))
+            {
+                if (rx.Total <= 0 || now - rx.LastNak < 2500) continue;
+                bool stalled = now - rx.Last >= 2500;
+                if (!stalled && rx.Buf.Count < 12) continue;            // still flowing and no significant gap
+                int hi = rx.Total;                                      // stalled: everything not received is missing
+                if (!stalled) { hi = 0; foreach (int k in rx.Buf.Keys) if (k > hi) hi = k; }   // flowing: only holes below what already arrived
+                var need = new List<object>();
+                for (int s = rx.Next; s < hi && need.Count < 48; s++) if (!rx.Buf.ContainsKey(s)) need.Add(s);
+                if (need.Count == 0) continue;
+                rx.LastNak = now;
+                var m = new Dictionary<string, object>(); m["t"] = "fnak"; m["fid"] = rx.O.Fid; m["idx"] = rx.Idx; m["to"] = rx.O.From; m["seqs"] = need;
+                Log.Write("transfer stalled at chunk " + rx.Next + "/" + rx.Total + " - re-requesting " + need.Count + " chunk(s)");
+                Send("ev", m, false);
+            }
         }
         void FireStatus() { int u = UpCount; if (u != lastUp) { lastUp = u; Fire(StatusChanged); } }
         public int UpCount { get { return Hub == null ? 0 : Hub.UpCount; } }
@@ -162,6 +201,7 @@ namespace Cliport
                 case "offer": OnOffer(d); break;
                 case "freq": if (Json.S(d, "to") == Cfg.DeviceId) ServeFile(d); break;
                 case "fres": if (Json.S(d, "to") == Cfg.DeviceId) OnFres(d); break;
+                case "fnak": if (Json.S(d, "to") == Cfg.DeviceId) ServeNak(d); break;
                 case "fchunk": OnChunk(d); break;
             }
         }
@@ -212,8 +252,18 @@ namespace Cliport
             if (!m.ContainsKey("id")) m["id"] = App.RandHex(8);
             int n = Send("ev", m, false); Send("st/clip", m, true);
             pending = n == 0 ? m : null;           // re-sent automatically when a relay comes back
+            lastOut = m;
         }
-        public void MarkApplied(string text) { lastHash = Hash(text); }
+        /// <summary>
+        /// A relay (re)connected. If the last clip never left, send it now. Otherwise re-announce our latest clip as
+        /// retained state: a write into a socket that was already dead reports success, so this closes that gap.
+        /// Receivers ignore it unless it is newer than what they have.
+        /// </summary>
+        void ReannounceClip()
+        {
+            if (pending != null) { PublishClip(pending); return; }
+            if (lastOut != null && Json.L(lastOut, "ts") == lastClipTs) Send("st/clip", lastOut, true);
+        }
 
         // ---------- history ----------
         void AddHistory(string text)
@@ -329,8 +379,18 @@ namespace Cliport
             if (Json.S(d, "from") != id) return;
             if (id == Cfg.DeviceId) { if (!Json.B(d, "online") && Hub != null && Hub.UpCount > 0) PublishDev(); return; }
             DeviceInfo di; if (!Devices.TryGetValue(id, out di)) { di = new DeviceInfo(); di.Id = id; Devices[id] = di; }
+            if (Json.B(d, "will"))
+            {
+                // Last-will from a relay: the device dropped off that relay. Its timestamp is the connect time, so it
+                // bypasses the ordering check; a device that is still alive elsewhere re-announces itself right away.
+                if (di.Name == null || di.Name == "") { di.Name = Json.S(d, "name"); di.Plat = Json.S(d, "plat"); }
+                if (di.Online) { di.Online = false; Log.Write("device offline (connection lost): " + di.Name); Fire(DevicesChanged); }
+                return;
+            }
             long ts = Json.L(d, "ts"); if (ts < di.Ts) return;
-            di.Ts = ts; di.Online = Json.B(d, "online"); di.Name = Json.S(d, "name"); di.Plat = Json.S(d, "plat"); di.Ver = Json.S(d, "ver");
+            bool was = di.Online;
+            di.Ts = ts; di.Online = Json.B(d, "online");
+            if (was != di.Online) Log.Write("device " + (di.Online ? "online: " : "offline: ") + Json.S(d, "name")); di.Name = Json.S(d, "name"); di.Plat = Json.S(d, "plat"); di.Ver = Json.S(d, "ver");
             var r = Json.D(d, "rdp");
             if (r != null)
             {
@@ -400,7 +460,10 @@ namespace Cliport
             string key = o.Fid + ":" + idx;
             if (rxs.ContainsKey(key)) { done(null, "ההעברה כבר מתבצעת"); return; }
             var rx = new Rx(); rx.O = o; rx.Idx = idx; rx.Progress = progress; rx.Done = done; rx.Last = App.Now();
-            string dir = Path.Combine(App.PathOf("incoming"), o.Fid); Directory.CreateDirectory(dir);
+            string dir = Path.Combine(App.PathOf("incoming"), o.Fid);
+            string nm = o.Files[idx].Name;
+            if (o.Files.FindIndex(delegate (FileEntry f) { return string.Equals(f.Name, nm, StringComparison.OrdinalIgnoreCase); }) != idx) dir = Path.Combine(dir, idx.ToString());   // same name twice in one copy
+            Directory.CreateDirectory(dir);
             rx.Path = Path.Combine(dir, o.Files[idx].Name);
             rxs[key] = rx;
             var m = new Dictionary<string, object>(); m["t"] = "freq"; m["fid"] = o.Fid; m["idx"] = idx; m["to"] = o.From;
@@ -456,6 +519,7 @@ namespace Cliport
             string key = Json.S(d, "fid") + ":" + Json.L(d, "idx");
             Rx rx; if (!rxs.TryGetValue(key, out rx)) return;
             int seq = (int)Json.L(d, "seq"); if (seq < rx.Next) return;
+            if (TestDrop > 0 && seq % TestDrop == 1 && testDropped.Add(key + "#" + seq)) return;     // QA hook: simulate a lossy relay
             rx.Total = (int)Json.L(d, "total"); rx.Last = App.Now();
             rx.Buf[seq] = Convert.FromBase64String(Json.S(d, "data"));
             if (rx.Fs == null) rx.Fs = new FileStream(rx.Path, FileMode.Create, FileAccess.Write);
@@ -487,7 +551,7 @@ namespace Cliport
                             while ((n = ReadFull(fs, buf)) > 0)
                             {
                                 var piece = new byte[n]; Array.Copy(buf, piece, n);
-                                parts.Add(Telegram.Upload(token, chat, keys.Seal(piece), "sc-" + fid + "-" + (k++) + ".bin"));
+                                parts.Add(Telegram.Upload(token, chat, keys.Seal(piece, false), "sc-" + fid + "-" + (k++) + ".bin"));
                             }
                             res["mode"] = "tg"; res["parts"] = parts;
                             hub.Publish(keys.Topic + "/ev", Pack(res), false);
@@ -498,16 +562,15 @@ namespace Cliport
                         int total = (int)((size + Chunk - 1) / Chunk);
                         res["mode"] = "mqtt"; res["total"] = total;
                         hub.Publish(keys.Topic + "/ev", Pack(res), false);
-                        var cb = new byte[Chunk];
+                        var cb = new byte[Chunk]; string pk = fid + ":" + idx + ":" + to;
+                        lock (pace) pace[pk] = 30;
                         for (int seq = 0; seq < total; seq++)
                         {
-                            int n = ReadFull(fs, cb);
-                            var m = new Dictionary<string, object>(); m["t"] = "fchunk"; m["fid"] = fid; m["idx"] = idx; m["seq"] = seq; m["total"] = total;
-                            m["data"] = Convert.ToBase64String(cb, 0, n);
-                            byte[] pkt = Pack(m); int tries = 0;
-                            while (!hub.PublishOne(keys.Topic + "/f/" + to, pkt)) { if (++tries > 40) throw new IOException("החיבור אבד במהלך ההעברה"); Thread.Sleep(500); }
-                            Thread.Sleep(20);
+                            SendChunk(hub, keys, fs, cb, fid, idx, seq, total, to);
+                            int wait; lock (pace) wait = pace[pk];
+                            Thread.Sleep(wait);
                         }
+                        lock (pace) pace.Remove(pk);
                         Log.Write("served via relay: " + path + " (" + total + " chunks)");
                     }
                 }
@@ -517,6 +580,43 @@ namespace Cliport
                     res["mode"] = "err"; res["err"] = e.Message; res.Remove("id");
                     try { hub.Publish(keys.Topic + "/ev", Pack(res), false); } catch { }
                 }
+            });
+        }
+        void SendChunk(RelayHub hub, KeyRing keys, FileStream fs, byte[] cb, string fid, int idx, int seq, int total, string to)
+        {
+            int n = ReadFull(fs, cb);
+            var m = new Dictionary<string, object>(); m["t"] = "fchunk"; m["fid"] = fid; m["idx"] = idx; m["seq"] = seq; m["total"] = total;
+            m["data"] = Convert.ToBase64String(cb, 0, n);
+            byte[] pkt = Pack(m); int tries = 0;
+            while (!hub.PublishOne(keys.Topic + "/f/" + to, pkt)) { if (++tries > 40) throw new IOException("החיבור אבד במהלך ההעברה"); Thread.Sleep(500); }
+        }
+        /// <summary>The receiver is missing specific chunks: send just those again.</summary>
+        void ServeNak(Dictionary<string, object> d)
+        {
+            string fid = Json.S(d, "fid"), to = Json.S(d, "from"); int idx = (int)Json.L(d, "idx");
+            var seqs = new List<int>(); foreach (string s in Json.Strs(d, "seqs")) { int v; if (int.TryParse(s, out v)) seqs.Add(v); }
+            Offer o; if (!outgoing.TryGetValue(fid, out o) || idx < 0 || idx >= o.Files.Count || seqs.Count == 0 || seqs.Count > 64) return;
+            string path = o.Files[idx].Path; var keys = Keys; var hub = Hub;
+            // loss reported while we are still sending: the link is weaker than our pace - slow down
+            lock (pace) { string pk = fid + ":" + idx + ":" + to; int cur; if (pace.TryGetValue(pk, out cur)) pace[pk] = Math.Min(cur * 2, 400); }
+            ThreadPool.QueueUserWorkItem(delegate
+            {
+                try
+                {
+                    using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                    {
+                        int total = (int)((fs.Length + Chunk - 1) / Chunk); var cb = new byte[Chunk];
+                        foreach (int seq in seqs)
+                        {
+                            if (seq < 0 || seq >= total) continue;
+                            fs.Seek((long)seq * Chunk, SeekOrigin.Begin);
+                            SendChunk(hub, keys, fs, cb, fid, idx, seq, total, to);
+                            Thread.Sleep(30);
+                        }
+                    }
+                    Log.Write("re-sent " + seqs.Count + " chunk(s) of " + Path.GetFileName(path));
+                }
+                catch (Exception e) { Log.Write("re-send failed: " + e.Message); }
             });
         }
         static int ReadFull(Stream s, byte[] b)

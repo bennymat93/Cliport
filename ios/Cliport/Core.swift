@@ -97,7 +97,7 @@ enum Base32 {
 }
 
 /// Shared-secret keys. HKDF-SHA256(secret, salt "Cliport-v1", info "enc" | "mac" | "topic").
-/// Envelope: 0x01 | IV(16) | AES-256-CBC(PKCS7) | HMAC-SHA256(0x01|IV|CT).
+/// Envelope: VER | IV(16) | AES-256-CBC(PKCS7) | HMAC-SHA256(VER|IV|CT). VER 1 = plain, 2 = raw-deflate compressed.
 struct KeyRing {
     let secret: Data
     private let encKey: Data
@@ -136,22 +136,30 @@ struct KeyRing {
         guard status == Int32(kCCSuccess) else { return nil }
         return Data(out[0..<moved])
     }
-    func seal(_ plain: Data) -> Data {
+    /// compress: the payload is deflated first when that makes it smaller (less data on weak links).
+    func seal(_ plainIn: Data, compress: Bool = true) -> Data {
+        var plain = plainIn
+        var ver: UInt8 = 1
+        if compress, plain.count >= 200, let z = try? (plain as NSData).compressed(using: .zlib) as Data, z.count < plain.count - plain.count / 10 {
+            plain = z; ver = 2
+        }
         var iv = [UInt8](repeating: 0, count: 16)
         _ = SecRandomCopyBytes(kSecRandomDefault, 16, &iv)
         let ct = aes(kCCEncrypt, iv: Data(iv), input: plain) ?? Data()
-        var env = Data([1]); env.append(contentsOf: iv); env.append(ct)
+        var env = Data([ver]); env.append(contentsOf: iv); env.append(ct)
         let tag = HMAC<SHA256>.authenticationCode(for: env, using: macKey)
         env.append(contentsOf: Data(tag))
         return env
     }
     func open(_ envelope: Data) -> Data? {
         let env = Data(envelope)                      // normalise slice indices
-        guard env.count >= 1 + 16 + 16 + 32, env[0] == 1 else { return nil }
+        guard env.count >= 1 + 16 + 16 + 32, env[0] == 1 || env[0] == 2 else { return nil }
         let n = env.count - 32
         let body = Data(env[0..<n]), tag = Data(env[n..<env.count])
         guard HMAC<SHA256>.isValidAuthenticationCode(tag, authenticating: body, using: macKey) else { return nil }
-        return aes(kCCDecrypt, iv: Data(env[1..<17]), input: Data(env[17..<n]))
+        guard let plain = aes(kCCDecrypt, iv: Data(env[1..<17]), input: Data(env[17..<n])) else { return nil }
+        if env[0] == 2 { return try? (plain as NSData).decompressed(using: .zlib) as Data }
+        return plain
     }
 }
 

@@ -43,7 +43,8 @@ namespace Cliport
         }
         public void Start() { stop = false; th = new Thread(Run); th.IsBackground = true; th.Name = "mqtt-" + Host; th.Start(); }
         public void Stop() { stop = true; Close(); }
-        public void Kick() { Close(); }   // force reconnect (used by self-healing)
+        volatile bool kicked;
+        public void Kick() { kicked = true; Close(); }   // force an immediate reconnect (self-healing, network change)
         public long IdleMs { get { return App.Now() - Interlocked.Read(ref lastRx); } }
 
         void Close()
@@ -73,8 +74,11 @@ namespace Cliport
                     if (Up) { Up = false; if (OnDown != null && !stop) { try { OnDown(this); } catch { } } }
                 }
                 if (stop) break;
+                if (kicked) { kicked = false; backoff = 1000; Thread.Sleep(150); continue; }
                 int j; lock (rnd) j = rnd.Next(700);
-                Thread.Sleep(backoff + j);
+                // sleep in slices so a network-change kick ends the wait at once
+                for (int waited = 0; waited < backoff + j && !stop && !kicked; waited += 200) Thread.Sleep(200);
+                kicked = false;
                 backoff = Math.Min(backoff * 2, 30000);
             }
         }
@@ -106,9 +110,9 @@ namespace Cliport
             ms = new MemoryStream(); ms.WriteByte(0); ms.WriteByte(1);
             foreach (string s in Subs) { WStr(ms, s); ms.WriteByte(0); }
             Send(0x82, ms.ToArray());
-            stream.ReadTimeout = 65000;
+            stream.ReadTimeout = 32000;        // pings go out every 10s, so 32s of silence means the link is dead
             Interlocked.Exchange(ref lastRx, App.Now());
-            ping = new Timer(delegate { try { Send(0xC0, new byte[0]); } catch { Close(); } }, null, 20000, 20000);
+            ping = new Timer(delegate { try { Send(0xC0, new byte[0]); } catch { Close(); } }, null, 10000, 10000);
         }
 
         void ReadLoop()
@@ -174,13 +178,18 @@ namespace Cliport
         {
             int n = 0; foreach (var l in Links) if (l.Publish(topic, payload, retain)) n++; return n;
         }
+        int rr;
+        /// <summary>Bulk traffic (file chunks): one relay per message, rotating, so no single relay carries the whole load.</summary>
         public bool PublishOne(string topic, byte[] payload)
         {
-            foreach (var l in Links) if (l.Publish(topic, payload, false)) return true; return false;
+            int n = Links.Count, start = (rr++ & 0x7fffffff) % Math.Max(n, 1);
+            for (int i = 0; i < n; i++) if (Links[(start + i) % n].Publish(topic, payload, false)) return true;
+            return false;
         }
         public void Start() { foreach (var l in Links) l.Start(); }
         public void Stop() { foreach (var l in Links) l.Stop(); }
-        /// <summary>Self-healing: kick links that look dead (no traffic incl. ping replies for 75s).</summary>
-        public void Heal() { foreach (var l in Links) if (l.Up && l.IdleMs > 75000) { Log.Write("healing stale relay " + l.Host); l.Kick(); } }
+        /// <summary>Self-healing: kick links that look dead (no traffic incl. ping replies for 35s).</summary>
+        public void Heal() { foreach (var l in Links) if (l.Up && l.IdleMs > 35000) { Log.Write("healing stale relay " + l.Host); l.Kick(); } }
+        public void KickAll() { foreach (var l in Links) l.Kick(); }
     }
 }

@@ -2,6 +2,7 @@
 import Foundation
 import UIKit
 import CryptoKit
+import Network
 
 struct PinItem: Identifiable, Equatable {
     var id: String; var text: String; var ts: Int64; var del: Bool
@@ -48,6 +49,10 @@ final class Engine: ObservableObject {
     private var lastHash = ""
     private var lastChangeCount = -1
     private var pending: [String: Any]?
+    private var lastOut: [String: Any]?
+    private var pace: [String: Double] = [:]          // per-transfer chunk interval, grows when the receiver reports loss
+    private var pathMonitor: NWPathMonitor?
+    private var lastNetKick = Date.distantPast
     private var seen = Set<String>()
     private var seenQ: [String] = []
     private var outgoing: [String: Offer] = [:]
@@ -56,11 +61,12 @@ final class Engine: ObservableObject {
     private var lastDevPub: Int64 = 0
     private var timer: Timer?
     private var tickN = 0
+    private var rr = 0
     var isActive = false
 
     private final class Rx {
         var offer: Offer; var idx: Int; var url: URL; var handle: FileHandle?
-        var total = -1; var next = 0; var last = AppInfo.now(); var buf: [Int: Data] = [:]
+        var total = -1; var next = 0; var last = AppInfo.now(); var lastNak: Int64 = 0; var buf: [Int: Data] = [:]
         var done: (URL?, String?) -> Void
         init(offer: Offer, idx: Int, url: URL, done: @escaping (URL?, String?) -> Void) { self.offer = offer; self.idx = idx; self.url = url; self.done = done }
     }
@@ -101,7 +107,9 @@ final class Engine: ObservableObject {
             l.willTopic = base + "/st/dev/" + me
             l.willPayload = { [weak self] in
                 guard let self = self, let k = self.keys else { return nil }
-                return k.seal(J.encode(self.stamp(self.devMsg(false))))
+                var w = self.devMsg(false)
+                w["will"] = true
+                return k.seal(J.encode(self.stamp(w)))
             }
             l.onMessage = { [weak self] topic, payload in self?.onWire(topic, payload) }
             l.onState = { [weak self] link in
@@ -109,7 +117,7 @@ final class Engine: ObservableObject {
                 self.refreshUp()
                 if link.up {
                     self.publishDev()
-                    if let p = self.pending { self.publishClip(p) }
+                    self.reannounceClip()
                     if !self.pinStore.isEmpty { self.publishPins() }
                     if self.cfgTs > 0 { self.publishCfg() }
                 }
@@ -122,7 +130,28 @@ final class Engine: ObservableObject {
             timer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] _ in self?.tick() }
         }
         applyKeepAlive()
+        if pathMonitor == nil {
+            // Wi-Fi <-> cellular, VPN, coming back into coverage: old sockets are dead - reconnect at once
+            let mon = NWPathMonitor()
+            mon.pathUpdateHandler = { [weak self] path in
+                DispatchQueue.main.async {
+                    guard let self = self, path.status == .satisfied, Date().timeIntervalSince(self.lastNetKick) > 3 else { return }
+                    self.lastNetKick = Date()
+                    Log.write("network changed - reconnecting relays")
+                    self.links.forEach { $0.kick() }
+                }
+            }
+            lastNetKick = Date()                         // ignore the initial callback
+            mon.start(queue: DispatchQueue.global(qos: .utility))
+            pathMonitor = mon
+        }
         Log.write("engine started, device \(me)")
+    }
+    /// A relay (re)connected: send what never left, otherwise re-announce our latest clip as retained state.
+    /// (A write into an already-dead socket reports success; receivers ignore anything not newer than what they have.)
+    private func reannounceClip() {
+        if let p = pending { publishClip(p); return }
+        if let l = lastOut, J.l(l, "ts") == lastClipTs { send("st/clip", l, retain: true) }
     }
     private func stopLinks() {
         if !links.isEmpty { send("st/dev/" + deviceId, devMsg(false), retain: true) }
@@ -154,12 +183,13 @@ final class Engine: ObservableObject {
     private func tick() {
         tickN += 1
         if isActive { checkLocalClipboard() }
+        requestMissingChunks()
         guard tickN % 4 == 0 else { return }                       // every ~6s
         links.forEach { $0.healIfStale() }
         refreshUp()
         let now = AppInfo.now()
         if now - lastDevPub > 60_000 { publishDev() }
-        for (k, rx) in rxs where now - rx.last > 45_000 { finishRx(k, "תם הזמן - המכשיר המקורי לא הגיב") }
+        for (k, rx) in rxs where now - rx.last > 90_000 { finishRx(k, "תם הזמן - המכשיר המקורי לא הגיב") }
         if paired && keepAlive && tickN % 16 == 0 { Notifier.armDeadman() }   // dead-man's switch: fires only if we stop running
     }
 
@@ -182,7 +212,10 @@ final class Engine: ObservableObject {
     private func sendOne(_ sub: String, _ m: [String: Any]) -> Bool {
         guard let k = keys else { return false }
         let payload = k.seal(J.encode(stamp(m)))
-        for l in links where l.publish(k.topic + "/" + sub, payload, retain: false) { return true }
+        let n = links.count
+        if n == 0 { return false }
+        rr = (rr + 1) % n                               // one relay per chunk, rotating: no single relay carries the whole load
+        for i in 0..<n where links[(rr + i) % n].publish(k.topic + "/" + sub, payload, retain: false) { return true }
         return false
     }
     private func onWire(_ topic: String, _ payload: Data) {
@@ -208,6 +241,7 @@ final class Engine: ObservableObject {
         case "offer": onOffer(d)
         case "freq": if J.s(d, "to") == deviceId { serveFile(d) }
         case "fres": if J.s(d, "to") == deviceId { onFres(d) }
+        case "fnak": if J.s(d, "to") == deviceId { serveNak(d) }
         case "fchunk": onChunk(d)
         default: break
         }
@@ -304,10 +338,13 @@ final class Engine: ObservableObject {
         let n = send("ev", m, retain: false)
         send("st/clip", m, retain: true)
         pending = n == 0 ? m : nil
+        lastOut = m
     }
     /// Used by the Shortcuts action: connect if needed, send, give the socket a moment to flush.
     func sendFromIntent(text: String) async -> Bool {
-        await MainActor.run { if self.links.isEmpty { self.start() }; self.lastHash = ""; self.localText(text) }
+        // Unchanged content is deliberately NOT re-sent: an automation that fires on every app switch
+        // must never push an old clipboard over something newer copied on another device.
+        await MainActor.run { if self.links.isEmpty { self.start() }; self.localText(text) }
         for _ in 0..<40 {
             let delivered = await MainActor.run { self.pending == nil && self.upCount > 0 }
             if delivered { break }
@@ -408,6 +445,15 @@ final class Engine: ObservableObject {
         guard J.s(d, "from") == id else { return }
         if id == deviceId { if !J.b(d, "online") && upCount > 0 { publishDev() }; return }
         var di = devStore[id] ?? DeviceInfo(id: id)
+        if J.b(d, "will") {
+            // Last-will from a relay: its timestamp is the connect time, so it bypasses the ordering check.
+            // A device that is still alive on another relay re-announces itself right away.
+            if di.name.isEmpty { di.name = J.s(d, "name"); di.plat = J.s(d, "plat") }
+            di.online = false
+            devStore[id] = di
+            devices = devStore.values.sorted { $0.name < $1.name }
+            return
+        }
         let ts = J.l(d, "ts")
         if ts < di.ts { return }
         di.ts = ts; di.online = J.b(d, "online"); di.name = J.s(d, "name"); di.plat = J.s(d, "plat"); di.ver = J.s(d, "ver")
@@ -506,7 +552,15 @@ final class Engine: ObservableObject {
         if rxs[key] != nil { done(nil, "ההעברה כבר מתבצעת"); return }
         let dir = AppInfo.docs.appendingPathComponent("Received", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let url = dir.appendingPathComponent(o.files[idx].name)
+        // never overwrite a file received earlier under the same name: "name (2).ext"
+        let name = o.files[idx].name as NSString
+        var url = dir.appendingPathComponent(name as String)
+        var n = 2
+        while FileManager.default.fileExists(atPath: url.path) {
+            let stem = name.deletingPathExtension, ext = name.pathExtension
+            url = dir.appendingPathComponent(ext.isEmpty ? "\(stem) (\(n))" : "\(stem) (\(n)).\(ext)")
+            n += 1
+        }
         rxs[key] = Rx(offer: o, idx: idx, url: url, done: done)
         if send("ev", ["t": "freq", "fid": o.fid, "idx": idx, "to": o.from], retain: false) == 0 { finishRx(key, "אין חיבור לשרתי הממסר") }
     }
@@ -583,7 +637,7 @@ final class Engine: ObservableObject {
                     while true {
                         let piece = h.readData(ofLength: Engine.tgPart)
                         if piece.isEmpty { break }
-                        parts.append(try await Telegram.upload(token: token, chat: chat, data: k.seal(piece), name: "sc-\(fid)-\(n).bin"))
+                        parts.append(try await Telegram.upload(token: token, chat: chat, data: k.seal(piece, compress: false), name: "sc-\(fid)-\(n).bin"))
                         n += 1
                     }
                     try? h.close()
@@ -600,19 +654,61 @@ final class Engine: ObservableObject {
         guard let h = try? FileHandle(forReadingFrom: url) else { fail("לא ניתן לקרוא את הקובץ"); return }
         let total = Int((size + Int64(Engine.chunk) - 1) / Int64(Engine.chunk))
         reply(base, ["mode": "mqtt", "total": total, "size": size])
+        let paceKey = "\(fid):\(idx):\(to)"
+        pace[paceKey] = 0.03
         func sendChunk(_ seq: Int, _ tries: Int, _ carried: Data?) {
-            if seq >= total { try? h.close(); Log.write("served via relay: \(total) chunks"); return }
+            if seq >= total { try? h.close(); self.pace[paceKey] = nil; Log.write("served via relay: \(total) chunks"); return }
             let data = carried ?? h.readData(ofLength: Engine.chunk)
             let m: [String: Any] = ["t": "fchunk", "fid": fid, "idx": idx, "seq": seq, "total": total, "data": data.base64EncodedString()]
             if self.sendOne("f/" + to, m) {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.025) { sendChunk(seq + 1, 0, nil) }
+                DispatchQueue.main.asyncAfter(deadline: .now() + (self.pace[paceKey] ?? 0.03)) { sendChunk(seq + 1, 0, nil) }
             } else if tries < 40 {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { sendChunk(seq, tries + 1, data) }
-            } else { try? h.close(); fail("החיבור אבד במהלך ההעברה") }
+            } else { try? h.close(); self.pace[paceKey] = nil; fail("החיבור אבד במהלך ההעברה") }
         }
         sendChunk(0, 0, nil)
     }
 
+    /// Relays are best-effort: ask again for exactly the chunks that are missing (holes, or everything left after a stall).
+    private func requestMissingChunks() {
+        guard !rxs.isEmpty else { return }
+        let now = AppInfo.now()
+        for rx in rxs.values {
+            if rx.total <= 0 || now - rx.lastNak < 2500 { continue }
+            let stalled = now - rx.last >= 2500
+            if !stalled && rx.buf.count < 12 { continue }
+            let hi = stalled ? rx.total : (rx.buf.keys.max() ?? 0)
+            var need: [Int] = []
+            var s = rx.next
+            while s < hi && need.count < 48 { if rx.buf[s] == nil { need.append(s) }; s += 1 }
+            if need.isEmpty { continue }
+            rx.lastNak = now
+            Log.write("transfer stalled at chunk \(rx.next)/\(rx.total) - re-requesting \(need.count) chunk(s)")
+            send("ev", ["t": "fnak", "fid": rx.offer.fid, "idx": rx.idx, "to": rx.offer.from, "seqs": need], retain: false)
+        }
+    }
+    /// The receiver is missing specific chunks: send just those again, and slow down a transfer that is still running.
+    private func serveNak(_ d: [String: Any]) {
+        let fid = J.s(d, "fid"), to = J.s(d, "from"), idx = Int(J.l(d, "idx"))
+        let seqs = J.strs(d, "seqs").compactMap { Int($0) }
+        guard let o = outgoing[fid], idx >= 0, idx < o.files.count, let url = o.files[idx].url, !seqs.isEmpty, seqs.count <= 64,
+              let h = try? FileHandle(forReadingFrom: url) else { return }
+        let paceKey = "\(fid):\(idx):\(to)"
+        if let cur = pace[paceKey] { pace[paceKey] = min(cur * 2, 0.4) }
+        let size = o.files[idx].size
+        let total = Int((size + Int64(Engine.chunk) - 1) / Int64(Engine.chunk))
+        func resend(_ i: Int) {
+            if i >= seqs.count { try? h.close(); Log.write("re-sent \(seqs.count) chunk(s)"); return }
+            let seq = seqs[i]
+            if seq >= 0 && seq < total {
+                h.seek(toFileOffset: UInt64(seq) * UInt64(Engine.chunk))
+                let data = h.readData(ofLength: Engine.chunk)
+                _ = self.sendOne("f/" + to, ["t": "fchunk", "fid": fid, "idx": idx, "seq": seq, "total": total, "data": data.base64EncodedString()])
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) { resend(i + 1) }
+        }
+        resend(0)
+    }
     private func reply(_ base: [String: Any], _ extra: [String: Any]) {
         var r = base
         for (k, v) in extra { r[k] = v }

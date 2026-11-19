@@ -18,6 +18,7 @@ namespace Cliport
         public static Icon AppIcon;
         public static void Rtl(Form f)
         {
+            f.AutoScaleDimensions = new SizeF(96f, 96f); f.AutoScaleMode = AutoScaleMode.Dpi;
             f.RightToLeft = RightToLeft.Yes; f.RightToLeftLayout = true; f.Font = F; if (AppIcon != null) f.Icon = AppIcon;
         }
         public static Button Btn(string text, EventHandler click)
@@ -120,7 +121,8 @@ namespace Cliport
     sealed class MainForm : Form
     {
         readonly Config cfg; readonly Engine eng; readonly ClipWindow clip; readonly NotifyIcon tray; readonly PinPopup popup = new PinPopup();
-        readonly System.Windows.Forms.Timer tick = new System.Windows.Forms.Timer(), debounce = new System.Windows.Forms.Timer();
+        readonly System.Windows.Forms.Timer tick = new System.Windows.Forms.Timer(), debounce = new System.Windows.Forms.Timer(), fast = new System.Windows.Forms.Timer();
+        long declinedAt;
         ListView lvClips, lvDev, lvRdp; Label lblStatus, lblRdp, lblTg; TextBox tbToken, tbChat, tbRelay; CheckBox cbAuto, cbAccept;
         Offer offer; string[] offerPaths; bool fetching; IntPtr prevFg; int tickN; bool exiting;
         readonly List<string> rowText = new List<string>();
@@ -145,7 +147,7 @@ namespace Cliport
             eng.PinsChanged = RefreshClips; eng.HistoryChanged = RefreshClips; eng.DevicesChanged = delegate { RefreshDevices(); }; eng.StatusChanged = RefreshStatus;
             eng.Notify = Toast;
             clip.Changed = delegate { debounce.Stop(); debounce.Start(); };
-            clip.RenderFiles = RenderOffer;
+            fast.Interval = 1000; fast.Tick += delegate { eng.FastTick(); }; fast.Start();
             clip.HotKey = OnHotKey;
             popup.Chosen = PastePin;
             debounce.Interval = 120; debounce.Tick += delegate { debounce.Stop(); ReadLocalClipboard(0); };
@@ -345,7 +347,7 @@ namespace Cliport
                 });
                 return;
             }
-            bool armed = !Recovery.SafeMode && clip.OfferDelayedFiles();
+            bool armed = !Recovery.SafeMode && clip.OfferVirtualFiles(new VirtualFiles(o, delegate (int i) { return Materialize(o, i); }));
             var f0 = o.Files[0];
             Toast("קובץ זמין להדבקה מ-" + o.FromName, f0.Name + (o.Files.Count > 1 ? " (+" + (o.Files.Count - 1) + ")" : "") + " • " + App.SizeText(o.TotalSize) + " • " + Mime.Label(f0.Name) +
                 (armed ? "\nהדבק (Ctrl+V) בכל תיקייה כדי לקבל אותו." : "\nלחץ כאן כדי להוריד."));
@@ -353,13 +355,10 @@ namespace Cliport
         bool Confirm(Offer o)
         {
             if (cfg.B("autoAccept", false)) return true;
-            var owner = new Form(); owner.TopMost = true;   // keep the question above the app that is pasting
-            try
-            {
-                return MessageBox.Show(owner, "לאשר הדבקת קובץ מ-" + o.FromName + "?\n\n" + Describe(o), "Cliport - אישור הדבקת קובץ",
-                    MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button1, MessageBoxOptions.RightAlign | MessageBoxOptions.RtlReading) == DialogResult.Yes;
-            }
-            finally { owner.Dispose(); }
+            // MB_TOPMOST | MB_SETFOREGROUND: keep the question above the application that is pasting
+            return MessageBox.Show("לאשר הדבקת קובץ מ-" + o.FromName + "?\n\n" + Describe(o), "Cliport - אישור הדבקת קובץ",
+                MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button1,
+                MessageBoxOptions.RightAlign | MessageBoxOptions.RtlReading | (MessageBoxOptions)0x50000) == DialogResult.Yes;
         }
         /// <summary>Downloads every file of the offer behind a modal progress window. Returns local paths or null.</summary>
         string[] Download(Offer o)
@@ -389,17 +388,24 @@ namespace Cliport
             }
             finally { fetching = false; }
         }
-        /// <summary>WM_RENDERFORMAT: an application is pasting the promised files right now.</summary>
-        string[] RenderOffer()
+        /// <summary>An application is pasting file #idx of the promised files right now: confirm once, download, hand over.</summary>
+        string Materialize(Offer o, int idx)
         {
-            var o = offer; if (o == null) return null;
-            if (offerPaths != null) return offerPaths;
-            if (!Confirm(o)) return null;
-            var paths = Download(o); if (paths == null) return null;
-            offerPaths = paths;
-            // also place the real files on the clipboard afterwards, in case the pasting app gave up waiting
-            BeginInvoke((Action)delegate { if (offer == o) clip.SetFiles(paths); });
-            return paths;
+            if (offer != o) return null;
+            if (offerPaths == null)
+            {
+                if (App.Now() - declinedAt < 4000) return null;          // one "no" covers every file of this paste
+                Log.Write("paste of remote file requested");
+                if (!Confirm(o)) { declinedAt = App.Now(); Log.Write("paste declined"); return null; }
+                var paths = Download(o); if (paths == null) return null;
+                offerPaths = paths;
+                // afterwards put the real files on the clipboard, so every application (not only Explorer) can paste them
+                var t = new System.Windows.Forms.Timer(); t.Interval = 4000;
+                t.Tick += delegate { t.Stop(); t.Dispose(); if (offer == o && !fetching) clip.SetFiles(paths); };
+                t.Start();
+            }
+            if (idx < 0) idx = 0;                                        // some consumers pass -1 for a single file
+            return idx < offerPaths.Length ? offerPaths[idx] : null;
         }
         void FetchOfferNow()
         {
@@ -466,10 +472,22 @@ namespace Cliport
             m.Add(new ToolStripSeparator());
             m.Add("יציאה", null, delegate { ExitApp(); });
         }
-        public void ShowMain() { RefreshDevices(); Show(); WindowState = FormWindowState.Normal; Activate(); }
+        bool pairing;
+        public void ShowMain()
+        {
+            if (pairing) return;
+            if (!eng.Paired && !EnsurePaired()) return;
+            RefreshDevices(); Show(); WindowState = FormWindowState.Normal; Activate();
+        }
         public bool EnsurePaired()
         {
             if (eng.Paired) return true;
+            if (pairing) return false;
+            pairing = true;
+            try { return PairNow(); } finally { pairing = false; }
+        }
+        bool PairNow()
+        {
             using (var pf = new PairForm())
             {
                 if (pf.ShowDialog() != DialogResult.OK) return false;
@@ -501,7 +519,7 @@ namespace Cliport
         }
         public void ExitApp()
         {
-            exiting = true; Recovery.CleanExit();
+            exiting = true; Recovery.Exiting = true; Recovery.CleanExit();
             try { tick.Stop(); eng.Stop(); Native.UnregisterHotKey(clip.Handle, 1); Native.UnregisterHotKey(clip.Handle, 2); clip.Dispose2(); tray.Visible = false; tray.Dispose(); } catch { }
             Application.Exit();
         }
@@ -526,6 +544,7 @@ namespace Cliport
                     case "--no-watchdog": Recovery.WatchdogEnabled = false; break;
                 }
             }
+            try { Native.SetProcessDPIAware(); } catch { }
             App.DataDir = Path.GetFullPath(data); Directory.CreateDirectory(App.DataDir);
             ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
             if (wdPid != 0) { Log.Tag = "watchdog"; return Recovery.RunWatchdog(wdPid); }
@@ -540,10 +559,13 @@ namespace Cliport
             // level 0: a failing UI callback is logged and contained; the app keeps running
             Application.ThreadException += delegate (object s, ThreadExceptionEventArgs e) { Log.Write("contained UI exception: " + e.Exception); };
             // anything else is fatal: log it and let the watchdog restart us
-            AppDomain.CurrentDomain.UnhandledException += delegate (object s, UnhandledExceptionEventArgs e) { Log.Write("FATAL: " + e.ExceptionObject); };
+            // (exit at once instead of sitting behind a Windows error dialog)
+            AppDomain.CurrentDomain.UnhandledException += delegate (object s, UnhandledExceptionEventArgs e) { Log.Write("FATAL: " + e.ExceptionObject); Environment.Exit(1); };
 
             Log.Write("---- Cliport v" + App.Version + " starting (pid " + Process.GetCurrentProcess().Id + ") ----");
             Recovery.OnStart();
+            Recovery.EnsureWatchdog();        // before any UI exists, so a crash during start-up is covered too
+            Microsoft.Win32.SystemEvents.SessionEnding += delegate { Recovery.SessionEnding(); };
             try { Ux.AppIcon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
             var cfg = new Config();
             if (join != null && KeyRing.FromCode(join) != null) cfg.Code = B32.Encode(B32.Decode(join));
