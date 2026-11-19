@@ -91,7 +91,8 @@ namespace Cliport
                 l.WillPayload = delegate { var w = DevMsg(false); w["will"] = true; return Pack(w); };
                 l.OnMessage = OnWire;
                 l.OnUp = delegate { post(delegate { PublishDev(); ReannounceClip(); PublishPinsIfAny(); FireStatus(); }); };
-                l.OnDown = delegate { post(FireStatus); };
+                // one relay dropped while others still carry us: say so before that relay's last-will lands
+                l.OnDown = delegate { post(delegate { FireStatus(); if (Hub != null && Hub.UpCount > 0) PublishDev(); }); };
                 Hub.Links.Add(l);
             }
             Hub.Start();
@@ -407,6 +408,7 @@ namespace Cliport
             return m;
         }
         public void PublishDev() { lastDevPub = App.Now(); Send("st/dev/" + Cfg.DeviceId, DevMsg(true), true); }
+        readonly HashSet<System.Threading.Timer> willTimers = new HashSet<System.Threading.Timer>();
         void OnDev(string id, Dictionary<string, object> d)
         {
             if (Json.S(d, "from") != id) return;
@@ -417,7 +419,20 @@ namespace Cliport
                 // Last-will from a relay: the device dropped off that relay. Its timestamp is the connect time, so it
                 // bypasses the ordering check; a device that is still alive elsewhere re-announces itself right away.
                 if (di.Name == null || di.Name == "") { di.Name = Json.S(d, "name"); di.Plat = Json.S(d, "plat"); }
-                if (di.Online) { di.Online = false; Log.Write("device offline (connection lost): " + di.Name); Fire(DevicesChanged); }
+                // So wait a moment before believing it: one dropped relay out of several is not "offline".
+                long seen = di.Ts; string wid = id; System.Threading.Timer t = null;
+                t = new System.Threading.Timer(delegate
+                {
+                    post(delegate
+                    {
+                        lock (willTimers) willTimers.Remove(t);
+                        t.Dispose();
+                        DeviceInfo x; if (!Devices.TryGetValue(wid, out x) || x.Ts != seen || !x.Online) return;
+                        x.Online = false; Log.Write("device offline (connection lost): " + x.Name); Fire(DevicesChanged);
+                    });
+                }, null, System.Threading.Timeout.Infinite, System.Threading.Timeout.Infinite);
+                lock (willTimers) willTimers.Add(t);
+                t.Change(8000, System.Threading.Timeout.Infinite);
                 return;
             }
             long ts = Json.L(d, "ts"); if (ts < di.Ts) return;

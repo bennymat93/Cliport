@@ -69,6 +69,13 @@ final class Engine: ObservableObject {
     private var pace: [String: Double] = [:]          // per-transfer chunk interval, grows when the receiver reports loss
     private var pathMonitor: NWPathMonitor?
     private var lastNetKick = Date.distantPast
+    private var lastPathSig: String?
+    private var pendingPaste: String?
+    /// A silent notification when something arrives while the app is in the background.
+    var notifyClips: Bool {
+        get { ud.object(forKey: "notifyClips") == nil ? true : ud.bool(forKey: "notifyClips") }
+        set { ud.set(newValue, forKey: "notifyClips"); objectWillChange.send() }
+    }
     private var seen = Set<String>()
     private var seenQ: [String] = []
     private var outgoing: [String: Offer] = [:]
@@ -141,7 +148,8 @@ final class Engine: ObservableObject {
                     self.reannounceClip()
                     if !self.pinStore.isEmpty { self.publishPins() }
                     if self.cfgTs > 0 { self.publishCfg() }
-                }
+                } else if self.upCount > 0 { self.publishDev() }     // one relay dropped, the others still carry us: say so before its last-will lands
+
             }
             links.append(l)
         }
@@ -156,7 +164,11 @@ final class Engine: ObservableObject {
             let mon = NWPathMonitor()
             mon.pathUpdateHandler = { [weak self] path in
                 DispatchQueue.main.async {
-                    guard let self = self, path.status == .satisfied, Date().timeIntervalSince(self.lastNetKick) > 3 else { return }
+                    // iOS reports path updates all the time; only a different interface (or coming back online) kills sockets
+                    let sig = path.status == .satisfied ? (path.availableInterfaces.first?.name ?? "?") : ""
+                    let old = self?.lastPathSig
+                    self?.lastPathSig = sig
+                    guard let self = self, let was = old, was != sig, !sig.isEmpty, Date().timeIntervalSince(self.lastNetKick) > 3 else { return }
                     self.lastNetKick = Date()
                     Log.write("network changed - reconnecting relays")
                     self.links.forEach { $0.kick() }
@@ -194,6 +206,16 @@ final class Engine: ObservableObject {
         isActive = true
         Recovery.markAlive(true)
         links.forEach { $0.healIfStale() }
+        Notifier.clearClip()
+        if let p = pendingPaste {
+            pendingPaste = nil
+            let pb = UIPasteboard.general
+            // unchanged count = nothing was copied on this device meanwhile, so the item that arrived is the newest
+            if pb.changeCount == lastChangeCount || lastChangeCount < 0 {
+                pb.string = p; lastChangeCount = pb.changeCount
+                banner = L.t("הפריט שהתקבל ברקע הועבר ללוח", "The item received in the background is now on the clipboard")
+            }
+        }
         checkLocalClipboard()
     }
     func enteredBackground() {
@@ -289,10 +311,22 @@ final class Engine: ObservableObject {
         let text = J.s(d, "text")
         guard !text.isEmpty else { return }
         lastHash = Engine.hash(text)
-        // Writing the pasteboard is allowed while we run in the background (kept alive); reading is not.
-        UIPasteboard.general.string = text
-        lastChangeCount = UIPasteboard.general.changeCount
         addHistory(text)
+        let pb = UIPasteboard.general
+        if UIApplication.shared.applicationState == .active {
+            pb.string = text; lastChangeCount = pb.changeCount; pendingPaste = nil
+        } else {
+            // iOS may silently refuse pasteboard writes from the background: try, and if nothing changed keep the
+            // text and put it on the pasteboard the moment the app is opened (the notification is one tap away).
+            let before = pb.changeCount
+            pb.string = text
+            let after = pb.changeCount
+            if after != before { lastChangeCount = after; pendingPaste = nil }
+            else {
+                pendingPaste = text
+                if notifyClips { Notifier.clip(nameOf(J.s(d, "from"))) }
+            }
+        }
         banner = L.t("התקבל מ-", "Received from ") + nameOf(J.s(d, "from"))
         Log.write("clip in (\(text.count) chars)")
     }
@@ -470,10 +504,15 @@ final class Engine: ObservableObject {
         if J.b(d, "will") {
             // Last-will from a relay: its timestamp is the connect time, so it bypasses the ordering check.
             // A device that is still alive on another relay re-announces itself right away.
-            if di.name.isEmpty { di.name = J.s(d, "name"); di.plat = J.s(d, "plat") }
-            di.online = false
-            devStore[id] = di
-            devices = devStore.values.sorted { $0.name < $1.name }
+            // So wait a moment before believing it: one dropped relay out of several is not "offline".
+            if di.name.isEmpty { di.name = J.s(d, "name"); di.plat = J.s(d, "plat"); devStore[id] = di }
+            let seenTs = di.ts
+            DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in
+                guard let self = self, var cur = self.devStore[id], cur.ts == seenTs, cur.online else { return }
+                cur.online = false
+                self.devStore[id] = cur
+                self.devices = self.devStore.values.sorted { $0.name < $1.name }
+            }
             return
         }
         let ts = J.l(d, "ts")

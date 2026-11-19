@@ -295,9 +295,10 @@ struct SettingsView: View {
                     Button(L.t("התנתק מהקבוצה", "Leave the group"), role: .destructive) { confirmUnpair = true }
                 }
                 Section(header: Text(L.t("פעילות ברקע", "Background activity")),
-                        footer: Text(L.t("כשהאפשרות פעילה, האפליקציה נשארת מחוברת ברקע ומה שמועתק במחשב נכנס ללוח של המכשיר אוטומטית. צריכת הסוללה עולה מעט.",
-                                         "When on, the app stays connected in the background and what you copy on a PC lands on this device's clipboard automatically. Battery use rises slightly."))) {
+                        footer: Text(L.t("כשהאפשרות פעילה, האפליקציה נשארת מחוברת ברקע ומקבלת מה שמועתק במחשב. אם iOS אינו מאפשר לכתוב ללוח ברקע, הפריט נכנס ללוח ברגע שפותחים את Cliport, וההתראה מביאה לשם בהקשה אחת. צריכת הסוללה עולה מעט.",
+                                         "When on, the app stays connected in the background and receives what you copy on a PC. If iOS does not allow writing to the clipboard in the background, the item lands on the clipboard the moment you open Cliport, and the notification takes you there in one tap. Battery use rises slightly."))) {
                     Toggle(L.t("השאר מחובר ברקע", "Stay connected in the background"), isOn: Binding(get: { eng.keepAlive }, set: { eng.keepAlive = $0 }))
+                    Toggle(L.t("התראה על פריט שהגיע ברקע", "Notify about items received in the background"), isOn: Binding(get: { eng.notifyClips }, set: { eng.notifyClips = $0 }))
                     Toggle(L.t("השהה סנכרון", "Pause sync"), isOn: $eng.paused)
                 }
                 Section(header: Text(L.t("טקסט גדול מאוד", "Very large text")),

@@ -52,8 +52,15 @@ final class MqttLink {
     private func teardown() {
         gen += 1
         pingTimer?.invalidate(); pingTimer = nil
-        conn?.stateUpdateHandler = nil
-        conn?.cancel(); conn = nil
+        if let c = conn {
+            c.stateUpdateHandler = nil
+            if up {
+                // a clean MQTT DISCONNECT: without it the relay publishes our last-will and every device sees us "offline"
+                c.send(content: Data([0xE0, 0]), completion: .contentProcessed { _ in c.cancel() })
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2) { c.cancel() }
+            } else { c.cancel() }
+        }
+        conn = nil
         if up { up = false; onState?(self) }
     }
 

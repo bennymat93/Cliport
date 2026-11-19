@@ -70,6 +70,15 @@ enum Notifier {
         let trigger: UNNotificationTrigger? = after > 0 ? UNTimeIntervalNotificationTrigger(timeInterval: after, repeats: false) : nil
         UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: id, content: content, trigger: trigger), withCompletionHandler: nil)
     }
+    /// Something arrived while the app is in the background and iOS did not let it onto the pasteboard.
+    /// One silent notification (replaced each time, no content shown on the lock screen); tapping it opens the app, which applies the item.
+    static func clip(_ from: String) {
+        let content = UNMutableNotificationContent()
+        content.title = L.t("פריט חדש מ-\(from)", "New item from \(from)")
+        content.body = L.t("הקש כדי להעביר אותו ללוח של המכשיר.", "Tap to put it on this device's clipboard.")
+        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "clip", content: content, trigger: nil), withCompletionHandler: nil)
+    }
+    static func clearClip() { UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: ["clip"]) }
     static func info(_ title: String, _ body: String) { post(id: "info-" + AppInfo.randHex(4), title: title, body: body) }
     static func fileOffer(_ o: Offer) {
         let f = o.files[0]

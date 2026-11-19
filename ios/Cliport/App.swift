@@ -39,7 +39,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
                                 withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
         // the in-app dialog already asks about pending files while we are in the foreground
-        completionHandler(notification.request.identifier == "offer" ? [] : [.banner, .sound])
+        let id = notification.request.identifier
+        completionHandler(id == "offer" || id == "clip" ? [] : [.banner, .sound])
     }
     func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
                                 withCompletionHandler completionHandler: @escaping () -> Void) {
