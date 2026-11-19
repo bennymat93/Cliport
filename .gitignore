@@ -1,0 +1,6 @@
+ios/build/
+ios/Payload/
+ios/*.xcodeproj/
+ios/*.ipa
+ios/Cliport/Info.plist
+*.tmp

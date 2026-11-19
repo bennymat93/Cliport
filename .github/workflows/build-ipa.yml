@@ -1,0 +1,42 @@
+# Builds the unsigned Cliport IPA on a GitHub-hosted Mac (no Mac or Apple developer account needed).
+# Push the repository to GitHub, open Actions -> "Build unsigned IPA" -> Run workflow, then download the artifact.
+name: Build unsigned IPA
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "ios/**"
+      - ".github/workflows/build-ipa.yml"
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        working-directory: ios
+        run: xcodegen generate
+
+      - name: Build (no code signing)
+        working-directory: ios
+        run: |
+          xcodebuild -project Cliport.xcodeproj -scheme Cliport -configuration Release \
+            -sdk iphoneos -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build
+
+      - name: Package IPA
+        working-directory: ios
+        run: |
+          mkdir -p Payload
+          cp -R build/Build/Products/Release-iphoneos/Cliport.app Payload/
+          zip -qry Cliport-v1.0-unsigned.ipa Payload
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Cliport-v1.0-unsigned-ipa
+          path: ios/Cliport-v1.0-unsigned.ipa
