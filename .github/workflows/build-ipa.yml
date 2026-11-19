@@ -24,10 +24,20 @@ jobs:
       - name: Build (no code signing)
         working-directory: ios
         run: |
+          set -o pipefail
           xcodebuild -project Cliport.xcodeproj -scheme Cliport -configuration Release \
             -sdk iphoneos -derivedDataPath build \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
-            build
+            build 2>&1 | tee build.log | tail -n 60
+
+      - name: Report compile errors
+        if: failure()
+        working-directory: ios
+        run: |
+          # one combined annotation (GitHub caps separate error annotations at 10 per step)
+          errs=$(grep -E "error:" build.log | sed "s#$PWD/##" | sort -u | head -n 60 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+          if [ -z "$errs" ]; then errs=$(tail -n 25 build.log | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}'); fi
+          echo "::error title=Build errors::${errs}"
 
       - name: Package IPA
         working-directory: ios
