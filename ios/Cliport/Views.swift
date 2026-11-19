@@ -1,6 +1,7 @@
-// Cliport v1.0 (iOS) - SwiftUI interface (Hebrew, right-to-left).
+// Cliport v1.0 (iOS) - SwiftUI interface. Two languages (Hebrew / English) and three appearance modes (light / device / dark).
 import SwiftUI
 import UIKit
+import WebKit
 
 struct RootView: View {
     @EnvironmentObject var eng: Engine
@@ -8,7 +9,10 @@ struct RootView: View {
         Group {
             if eng.paired { MainTabs() } else { PairView() }
         }
-        .environment(\.layoutDirection, .rightToLeft)
+        .environment(\.layoutDirection, L.en ? .leftToRight : .rightToLeft)
+        .preferredColorScheme(eng.theme == "light" ? .light : (eng.theme == "dark" ? .dark : nil))
+        .tint(Color(red: 0.36, green: 0.36, blue: 0.94))
+        .id(eng.lang)            // rebuild every screen when the language changes
     }
 }
 
@@ -19,24 +23,46 @@ struct PairView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section(footer: Text("כל המכשירים חולקים קוד צימוד סודי אחד. הקוד הוא מפתח ההצפנה - התוכן מוצפן מקצה לקצה.")) {
-                    TextField("קוד צימוד (26 תווים)", text: $code)
+                Section(footer: Text(L.t("כל המכשירים חולקים קוד צימוד סודי אחד. הקוד הוא מפתח ההצפנה - התוכן מוצפן מקצה לקצה.",
+                                         "All devices share one secret pairing code. The code is the encryption key - content is end-to-end encrypted."))) {
+                    TextField(L.t("קוד צימוד (26 תווים)", "Pairing code (26 characters)"), text: $code)
                         .textInputAutocapitalization(.characters)
                         .autocorrectionDisabled(true)
                         .font(.system(.body, design: .monospaced))
                         .environment(\.layoutDirection, .leftToRight)
-                    Button("הצטרף עם הקוד") { bad = !eng.pair(code: code) }
+                    Button(L.t("הצטרף עם הקוד", "Join with this code")) { bad = !eng.pair(code: code) }
                         .disabled(code.isEmpty)
                     PasteButton(payloadType: String.self) { items in
                         if let s = items.first { DispatchQueue.main.async { code = s; bad = !eng.pair(code: s) } }
                     }
                 }
-                Section(footer: Text("אם זה המכשיר הראשון - צור קבוצה חדשה והזן את הקוד שיוצג בשאר המכשירים.")) {
-                    Button("צור קבוצה חדשה") { eng.createGroup() }
+                Section(footer: Text(L.t("אם זה המכשיר הראשון, צור קבוצה חדשה והזן את הקוד שיוצג בשאר המכשירים.",
+                                         "If this is the first device, create a new group and enter the code it shows on your other devices."))) {
+                    Button(L.t("צור קבוצה חדשה", "Create a new group")) { eng.createGroup() }
                 }
+                AppearanceSection()
             }
             .navigationTitle("Cliport")
-            .alert("הקוד אינו תקין", isPresented: $bad) { Button("אישור", role: .cancel) { } }
+            .alert(L.t("הקוד אינו תקין", "The code is not valid"), isPresented: $bad) { Button(L.t("אישור", "OK"), role: .cancel) { } }
+        }
+    }
+}
+
+/// Language and appearance pickers (shared by the pairing screen and Settings).
+struct AppearanceSection: View {
+    @EnvironmentObject var eng: Engine
+    var body: some View {
+        Section(header: Text(L.t("תצוגה", "Appearance"))) {
+            Picker(L.t("שפה", "Language"), selection: Binding(get: { L.en ? "en" : "he" }, set: { eng.lang = $0 })) {
+                Text("עברית").tag("he")
+                Text("English").tag("en")
+            }
+            Picker(L.t("ערכת נושא", "Theme"), selection: $eng.theme) {
+                Text(L.t("בהיר", "Light")).tag("light")
+                Text(L.t("מכשיר", "Device")).tag("system")
+                Text(L.t("כהה", "Dark")).tag("dark")
+            }
+            .pickerStyle(.segmented)
         }
     }
 }
@@ -45,13 +71,13 @@ struct MainTabs: View {
     @EnvironmentObject var eng: Engine
     var body: some View {
         TabView {
-            ClipView().tabItem { Label("לוח", systemImage: "doc.on.clipboard") }
-            RdpView().tabItem { Label("מחשבים", systemImage: "desktopcomputer") }
-            SettingsView().tabItem { Label("הגדרות", systemImage: "gearshape") }
+            ClipView().tabItem { Label(L.t("לוח", "Clipboard"), systemImage: "doc.on.clipboard") }
+            RdpView().tabItem { Label(L.t("מחשבים", "Computers"), systemImage: "desktopcomputer") }
+            SettingsView().tabItem { Label(L.t("הגדרות", "Settings"), systemImage: "gearshape") }
         }
-        .alert("לאשר הדבקת קובץ?", isPresented: Binding(get: { eng.offer != nil && eng.progress < 0 }, set: { _ in }), presenting: eng.offer) { _ in
-            Button("אשר הדבקה") { eng.acceptOffer() }
-            Button("דחה", role: .cancel) { eng.declineOffer() }
+        .alert(L.t("לאשר הדבקת קובץ?", "Allow pasting this file?"), isPresented: Binding(get: { eng.offer != nil && eng.progress < 0 }, set: { _ in }), presenting: eng.offer) { _ in
+            Button(L.t("אשר הדבקה", "Allow paste")) { eng.acceptOffer() }
+            Button(L.t("דחה", "Decline"), role: .cancel) { eng.declineOffer() }
         } message: { o in
             Text(OfferText.describe(o))
         }
@@ -60,11 +86,11 @@ struct MainTabs: View {
 
 enum OfferText {
     static func describe(_ o: Offer) -> String {
-        var lines = ["מאת: " + o.fromName]
+        var lines = [L.t("מאת: ", "From: ") + o.fromName]
         for f in o.files {
-            lines.append("שם: " + f.name)
-            lines.append("גודל: " + AppInfo.sizeText(f.size))
-            lines.append("סוג: " + Mime.label(f.name))
+            lines.append(L.t("שם: ", "Name: ") + f.name)
+            lines.append(L.t("גודל: ", "Size: ") + AppInfo.sizeText(f.size))
+            lines.append(L.t("סוג: ", "Type: ") + Mime.label(f.name))
         }
         return lines.joined(separator: "\n")
     }
@@ -72,19 +98,23 @@ enum OfferText {
 
 struct ClipView: View {
     @EnvironmentObject var eng: Engine
+    @State private var query = ""
+    private func matches(_ t: String) -> Bool { query.isEmpty || t.localizedCaseInsensitiveContains(query) }
     var body: some View {
         NavigationStack {
             List {
                 Section {
                     HStack {
-                        Circle().fill(eng.upCount > 0 ? Color.green : Color.orange).frame(width: 10, height: 10)
-                        Text(eng.paused ? "הסנכרון מושהה" : (eng.upCount > 0 ? "מחובר (\(eng.upCount)/\(eng.relayCount) שרתי ממסר)" : "מתחבר מחדש..."))
+                        Circle().fill(eng.upCount > 0 && !eng.paused ? Color.green : Color.orange).frame(width: 10, height: 10)
+                        Text(eng.paused ? L.t("הסנכרון מושהה", "Sync is paused")
+                             : (eng.upCount > 0 ? L.t("מחובר ומסנכרן (\(eng.upCount)/\(eng.relayCount) שרתי ממסר)", "Connected and syncing (\(eng.upCount)/\(eng.relayCount) relays)")
+                                : L.t("מתחבר מחדש...", "Reconnecting...")))
                         Spacer()
                     }
                     if !eng.banner.isEmpty { Text(eng.banner).font(.footnote).foregroundColor(.secondary) }
                     if eng.progress >= 0 { ProgressView(value: Double(eng.progress), total: 100) }
                     HStack {
-                        Button { eng.sendClipboardNow() } label: { Label("שלח את הלוח עכשיו", systemImage: "arrow.up.doc.on.clipboard") }
+                        Button { eng.sendClipboardNow() } label: { Label(L.t("שלח את הלוח עכשיו", "Send clipboard now"), systemImage: "arrow.up.doc.on.clipboard") }
                             .buttonStyle(.borderedProminent)
                         Spacer()
                         PasteButton(payloadType: String.self) { items in
@@ -93,30 +123,32 @@ struct ClipView: View {
                     }
                 }
                 if let o = eng.offer {
-                    Section("קובץ ממתין לאישור") {
+                    Section(L.t("קובץ ממתין לאישור", "File waiting for approval")) {
                         Text(OfferText.describe(o)).font(.callout)
-                        Button("אשר הדבקה") { eng.acceptOffer() }.disabled(eng.progress >= 0)
-                        Button("דחה", role: .destructive) { eng.declineOffer() }
+                        Button(L.t("אשר הדבקה", "Allow paste")) { eng.acceptOffer() }.disabled(eng.progress >= 0)
+                        Button(L.t("דחה", "Decline"), role: .destructive) { eng.declineOffer() }
                     }
                 }
                 if !eng.offerReady.isEmpty {
-                    Section("קבצים שהתקבלו (הועתקו ללוח)") {
+                    Section(L.t("קבצים שהתקבלו (הועתקו ללוח)", "Received files (copied to the clipboard)")) {
                         ForEach(eng.offerReady, id: \.self) { url in
                             ShareLink(item: url) { Label(url.lastPathComponent, systemImage: "doc") }
                         }
                     }
                 }
-                if !eng.pins.isEmpty {
-                    Section("נעוצים") {
-                        ForEach(eng.pins) { p in ClipRow(text: p.text, pinned: true) }
+                let pins = eng.pins.filter { matches($0.text) }
+                if !pins.isEmpty {
+                    Section(L.t("נעוצים", "Pinned")) {
+                        ForEach(pins) { p in ClipRow(text: p.text, pinned: true) }
                     }
                 }
-                Section("היסטוריה") {
-                    let items = eng.history.filter { !eng.isPinned($0) }
-                    if items.isEmpty { Text("עדיין אין פריטים").foregroundColor(.secondary) }
+                Section(L.t("היסטוריה", "History")) {
+                    let items = eng.history.filter { !eng.isPinned($0) && matches($0) }
+                    if items.isEmpty { Text(query.isEmpty ? L.t("עדיין אין פריטים", "Nothing here yet") : L.t("לא נמצאו תוצאות", "No results")).foregroundColor(.secondary) }
                     ForEach(items, id: \.self) { t in ClipRow(text: t, pinned: false) }
                 }
             }
+            .searchable(text: $query, prompt: L.t("חיפוש", "Search"))
             .navigationTitle("Cliport")
         }
     }
@@ -129,16 +161,21 @@ struct ClipRow: View {
     var body: some View {
         Button { eng.copy(text) } label: {
             HStack(alignment: .top) {
-                if pinned { Image(systemName: "pin.fill").foregroundColor(.red) }
+                if pinned { Image(systemName: "pin.fill").foregroundColor(.accentColor) }
                 Text(text).lineLimit(3).foregroundColor(.primary).frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .swipeActions(edge: .leading) {
-            Button { if pinned { eng.unpin(text) } else { eng.pin(text) } } label: { Label(pinned ? "בטל נעיצה" : "נעץ", systemImage: pinned ? "pin.slash" : "pin") }
+            Button { if pinned { eng.unpin(text) } else { eng.pin(text) } } label: { Label(pinned ? L.t("בטל נעיצה", "Unpin") : L.t("נעץ", "Pin"), systemImage: pinned ? "pin.slash" : "pin") }
                 .tint(.orange)
         }
         .swipeActions(edge: .trailing) {
-            if !pinned { Button(role: .destructive) { eng.removeHistory(text) } label: { Label("מחק", systemImage: "trash") } }
+            if !pinned { Button(role: .destructive) { eng.removeHistory(text) } label: { Label(L.t("מחק", "Delete"), systemImage: "trash") } }
+        }
+        .contextMenu {
+            Button { eng.copy(text) } label: { Label(L.t("העתק", "Copy"), systemImage: "doc.on.doc") }
+            Button { if pinned { eng.unpin(text) } else { eng.pin(text) } } label: { Label(pinned ? L.t("בטל נעיצה", "Unpin") : L.t("נעץ", "Pin"), systemImage: pinned ? "pin.slash" : "pin") }
+            if !pinned { Button(role: .destructive) { eng.removeHistory(text) } label: { Label(L.t("מחק", "Delete"), systemImage: "trash") } }
         }
     }
 }
@@ -177,9 +214,12 @@ struct RdpView: View {
         NavigationStack {
             List {
                 let pcs = eng.devices.filter { $0.plat == "win" }
-                if pcs.isEmpty { Text("לא נמצאו מחשבים בקבוצה. התקן את Cliport במחשב וצמד אותו עם אותו קוד.").foregroundColor(.secondary) }
+                if pcs.isEmpty {
+                    Text(L.t("לא נמצאו מחשבים בקבוצה. התקן את Cliport במחשב וצמד אותו עם אותו קוד.", "No computers in the group. Install Cliport on a PC and pair it with the same code.")).foregroundColor(.secondary)
+                }
                 ForEach(pcs) { d in
-                    Section(header: Text(d.name), footer: Text(d.isOnline ? (d.rdpOn ? "זמין לחיבור" : "Remote Desktop כבוי במחשב זה") : "המחשב לא מחובר כרגע")) {
+                    Section(header: Text(d.name),
+                            footer: Text(d.isOnline ? (d.rdpOn ? L.t("זמין לחיבור", "Ready to connect") : L.t("Remote Desktop כבוי במחשב זה", "Remote Desktop is off on this PC")) : L.t("המחשב לא מחובר כרגע", "This PC is offline right now"))) {
                         ForEach(d.addrs, id: \.self) { a in
                             Button {
                                 RdpLauncher.open(d, address: a) { ok in
@@ -190,28 +230,36 @@ struct RdpView: View {
                                     Image(systemName: "display")
                                     Text(a).environment(\.layoutDirection, .leftToRight)
                                     Spacer()
-                                    Text(a.hasPrefix("100.") ? "Tailscale - מכל רשת" : "רשת מקומית").font(.footnote).foregroundColor(.secondary)
+                                    Text(a.hasPrefix("100.") ? L.t("Tailscale - מכל רשת", "Tailscale - any network") : L.t("רשת מקומית", "Local network")).font(.footnote).foregroundColor(.secondary)
                                 }
                             }
                         }
                     }
                 }
-                Section(footer: Text("החיבור נפתח באפליקציית Windows App של מיקרוסופט (חינם ב-App Store). לחיבור מכל רשת התקן Tailscale באייפון ובמחשבים. לקיצור דרך במסך הבית: אפליקציית \"קיצורים\" ← פעולה \"התחבר למחשב\" של Cliport.")) { EmptyView() }
+                Section(footer: Text(L.t("החיבור נפתח באפליקציית Windows App של מיקרוסופט (חינם ב-App Store). לחיבור מכל רשת התקן Tailscale באייפון ובמחשבים. לקיצור דרך במסך הבית: אפליקציית \"קיצורים\", פעולה \"התחבר למחשב\" של Cliport.",
+                                         "The connection opens in Microsoft's Windows App (free on the App Store). To connect from any network, install Tailscale on the iPhone and on the PCs. For a Home Screen shortcut: the Shortcuts app, Cliport action \"Connect to a PC\"."))) { EmptyView() }
             }
-            .navigationTitle("שולחן עבודה מרוחק")
+            .navigationTitle(L.t("שולחן עבודה מרוחק", "Remote Desktop"))
             .sheet(isPresented: $showFallback) {
                 VStack(spacing: 20) {
-                    Text("לא ניתן היה לפתוח את החיבור ישירות.").font(.headline)
-                    Text("פתח את קובץ החיבור ב-Windows App:")
-                    if let f = fallback { ShareLink(item: f) { Label("פתח קובץ ‎.rdp", systemImage: "square.and.arrow.up") }.buttonStyle(.borderedProminent) }
-                    Button("סגור") { showFallback = false }
+                    Text(L.t("לא ניתן היה לפתוח את החיבור ישירות.", "The connection could not be opened directly.")).font(.headline)
+                    Text(L.t("פתח את קובץ החיבור ב-Windows App:", "Open the connection file in Windows App:"))
+                    if let f = fallback { ShareLink(item: f) { Label(L.t("פתח קובץ חיבור", "Open connection file"), systemImage: "square.and.arrow.up") }.buttonStyle(.borderedProminent) }
+                    Button(L.t("סגור", "Close")) { showFallback = false }
                 }
                 .padding()
-                .environment(\.layoutDirection, .rightToLeft)
+                .environment(\.layoutDirection, L.en ? .leftToRight : .rightToLeft)
                 .presentationDetents([.medium])
             }
         }
     }
+}
+
+/// The user guide ships inside the app (one HTML file per language, pictures inline).
+struct GuideView: UIViewRepresentable {
+    let url: URL
+    func makeUIView(context: Context) -> WKWebView { let w = WKWebView(); w.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent()); return w }
+    func updateUIView(_ uiView: WKWebView, context: Context) { }
 }
 
 struct SettingsView: View {
@@ -221,63 +269,82 @@ struct SettingsView: View {
     @State private var relays = ""
     @State private var msg = ""
     @State private var confirmUnpair = false
+    private var guideURL: URL? { Bundle.main.url(forResource: L.en ? "guide.en" : "guide.he", withExtension: "html") }
     var body: some View {
         NavigationStack {
             Form {
-                Section(header: Text("צימוד"), footer: Text("הזן קוד זה במכשירים נוספים. אל תשתף אותו - זהו מפתח ההצפנה.")) {
+                AppearanceSection()
+                Section(header: Text(L.t("צימוד", "Pairing")), footer: Text(L.t("הזן קוד זה במכשירים נוספים. אל תשתף אותו - זהו מפתח ההצפנה.", "Enter this code on your other devices. Do not share it - it is the encryption key."))) {
                     Text(Base32.pretty(eng.keys?.code ?? "")).font(.system(.footnote, design: .monospaced)).textSelection(.enabled)
                         .environment(\.layoutDirection, .leftToRight)
-                    Button("העתק קוד") { UIPasteboard.general.string = eng.keys?.code ?? "" }
-                    Button("התנתק מהקבוצה", role: .destructive) { confirmUnpair = true }
+                    Button(L.t("העתק קוד", "Copy code")) { UIPasteboard.general.string = eng.keys?.code ?? "" }
+                    Button(L.t("התנתק מהקבוצה", "Leave the group"), role: .destructive) { confirmUnpair = true }
                 }
-                Section(header: Text("פעילות ברקע"), footer: Text("כשהאפשרות פעילה, האפליקציה נשארת מחוברת ברקע ומה שמועתק במחשב נכנס ללוח של המכשיר אוטומטית. צריכת הסוללה עולה מעט.")) {
-                    Toggle("השאר מחובר ברקע", isOn: Binding(get: { eng.keepAlive }, set: { eng.keepAlive = $0 }))
-                    Toggle("השהה סנכרון", isOn: $eng.paused)
+                Section(header: Text(L.t("פעילות ברקע", "Background activity")),
+                        footer: Text(L.t("כשהאפשרות פעילה, האפליקציה נשארת מחוברת ברקע ומה שמועתק במחשב נכנס ללוח של המכשיר אוטומטית. צריכת הסוללה עולה מעט.",
+                                         "When on, the app stays connected in the background and what you copy on a PC lands on this device's clipboard automatically. Battery use rises slightly."))) {
+                    Toggle(L.t("השאר מחובר ברקע", "Stay connected in the background"), isOn: Binding(get: { eng.keepAlive }, set: { eng.keepAlive = $0 }))
+                    Toggle(L.t("השהה סנכרון", "Pause sync"), isOn: $eng.paused)
                 }
-                Section(header: Text("שליחה אוטומטית מהמכשיר"), footer: Text("iOS אינו מאפשר לאף אפליקציה לקרוא את הלוח ברקע. כדי שהעתקה במכשיר תישלח לבד:\n1. הגדרות ← Cliport ← \"הדבקה מיישומים אחרים\" ← אפשר.\n2. אפליקציית \"קיצורים\" ← אוטומציה ← חדשה ← \"יישום\" ← בחר את היישומים ← \"נסגר\" ← \"הפעל מיד\".\n3. הוסף פעולה \"קבל לוח\" ואחריה \"שלח טקסט לכל המכשירים\" (Cliport).\nמעכשיו כל יציאה מיישום שולחת את הלוח. בנוסף, פתיחת Cliport שולחת את הלוח מיד.")) { EmptyView() }
-                Section(header: Text("אחסון Telegram לקבצים גדולים (אופציונלי)"), footer: Text(eng.tgReady ? "מוגדר ומשותף לכל המכשירים." : "ללא Telegram: קבצים עד 25MB עוברים דרך הממסר. צור בוט אצל ‎@BotFather‎, שלח לו ‎/start‎ ולחץ \"זהה צ'אט ושמור\".")) {
+                Section(header: Text(L.t("שליחה אוטומטית מהמכשיר", "Automatic sending from this device")),
+                        footer: Text(L.t("iOS אינו מאפשר לאף אפליקציה לקרוא את הלוח ברקע. כדי שהעתקה במכשיר תישלח לבד:\n1. הגדרות, Cliport, \"הדבקה מיישומים אחרים\": אפשר.\n2. אפליקציית \"קיצורים\", אוטומציה חדשה, \"יישום\", בחר יישומים, \"נסגר\", \"הפעל מיד\".\n3. הוסף פעולה \"קבל לוח\" ואחריה \"שלח טקסט לכל המכשירים\" של Cliport.\nמעכשיו כל יציאה מיישום שולחת את הלוח. בנוסף, פתיחת Cliport שולחת את הלוח מיד.",
+                                         "iOS does not let any app read the clipboard in the background. To send what you copy automatically:\n1. Settings, Cliport, \"Paste from Other Apps\": Allow.\n2. Shortcuts app, new Automation, \"App\", choose apps, \"Is Closed\", \"Run Immediately\".\n3. Add the action \"Get Clipboard\" followed by Cliport's \"Send text to all devices\".\nFrom now on, leaving an app sends the clipboard. Opening Cliport also sends it right away."))) { EmptyView() }
+                Section(header: Text(L.t("אחסון Telegram לקבצים גדולים (אופציונלי)", "Telegram storage for large files (optional)")),
+                        footer: Text(eng.tgReady ? L.t("מוגדר ומשותף לכל המכשירים.", "Set up and shared with all devices.")
+                                     : L.t("ללא Telegram, קבצים עד 25MB עוברים דרך הממסר. צור בוט אצל BotFather, שלח לו הודעה ולחץ \"זהה צ'אט ושמור\".", "Without Telegram, files up to 25 MB travel through the relay. Create a bot with BotFather, send it a message and tap \"Detect chat and save\"."))) {
                     SecureField("Bot Token", text: $token).environment(\.layoutDirection, .leftToRight)
                     TextField("Chat ID", text: $chat).environment(\.layoutDirection, .leftToRight)
-                    Button("זהה צ'אט ושמור") { saveTelegram() }
+                    Button(L.t("זהה צ'אט ושמור", "Detect chat and save")) { saveTelegram() }
                 }
-                Section(header: Text("שרת ממסר פרטי (אופציונלי)"), footer: Text("MQTT על TLS: ‎host:port‎ או ‎user:pass@host:port‎. מופץ לכל המכשירים.")) {
+                Section(header: Text(L.t("שרת ממסר פרטי (אופציונלי)", "Private relay server (optional)")),
+                        footer: Text(L.t("MQTT על TLS בפורמט host:port או user:pass@host:port. מופץ לכל המכשירים.", "MQTT over TLS as host:port or user:pass@host:port. Shared with all devices."))) {
                     TextField("host:port", text: $relays).environment(\.layoutDirection, .leftToRight).autocorrectionDisabled(true).textInputAutocapitalization(.never)
-                    Button("שמור ממסר") { eng.setRelays(relays); msg = "רשימת הממסרים עודכנה" }
+                    Button(L.t("שמור ממסר", "Save relay")) { eng.setRelays(relays); msg = L.t("רשימת הממסרים עודכנה", "The relay list was updated") }
                 }
-                Section(header: Text("מכשירים בקבוצה")) {
+                Section(header: Text(L.t("מכשירים בקבוצה", "Devices in the group"))) {
+                    if eng.devices.isEmpty { Text(L.t("אין מכשירים נוספים עדיין", "No other devices yet")).foregroundColor(.secondary) }
                     ForEach(eng.devices) { d in
                         HStack {
                             Image(systemName: d.plat == "ios" ? "iphone" : "desktopcomputer")
                             Text(d.name)
                             Spacer()
-                            Text(d.isOnline ? "מחובר" : "לא מחובר").font(.footnote).foregroundColor(d.isOnline ? .green : .secondary)
+                            Text(d.isOnline ? L.t("מחובר", "Online") : L.t("לא מחובר", "Offline")).font(.footnote).foregroundColor(d.isOnline ? .green : .secondary)
                         }
-                        .swipeActions { Button("שכח", role: .destructive) { eng.forget(d.id) } }
+                        .swipeActions { Button(L.t("שכח", "Forget"), role: .destructive) { eng.forget(d.id) } }
                     }
                 }
-                Section(header: Text("אודות")) {
-                    Text("Cliport v\(AppInfo.version)")
-                    if let n = Recovery.notice { Text("התאוששות (דרגה \(Recovery.level)): \(n)").font(.footnote) }
+                Section(header: Text(L.t("עזרה ואודות", "Help and about"))) {
+                    if let g = guideURL {
+                        NavigationLink { GuideView(url: g).navigationTitle(L.t("מדריך למשתמש", "User guide")).navigationBarTitleDisplayMode(.inline) } label: { Label(L.t("מדריך למשתמש", "User guide"), systemImage: "book") }
+                    }
+                    if let u = URL(string: "https://github.com/bennymat93/Cliport") { Link(destination: u) { Label(L.t("דף הפרויקט ב-GitHub", "Project page on GitHub"), systemImage: "link") } }
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Cliport").font(.headline)
+                        Text(L.t("גרסה ", "Version ") + AppInfo.version).font(.footnote).foregroundColor(.secondary)
+                        Text(L.t("לוח משותף בזמן אמת בין מחשבים, אייפון ואייפד. מוצפן מקצה לקצה, עובד מכל רשת, כולל שיתוף קבצים, נעוצים ושולחן עבודה מרוחק.",
+                                 "A real-time shared clipboard for PCs, iPhone and iPad. End-to-end encrypted, works from any network, with file sharing, pins and Remote Desktop.")).font(.footnote)
+                    }
+                    if let n = Recovery.notice { Text(L.t("התאוששות (דרגה \(Recovery.level)): ", "Recovery (level \(Recovery.level)): ") + n).font(.footnote) }
                     if !msg.isEmpty { Text(msg).font(.footnote).foregroundColor(.secondary) }
                 }
             }
-            .navigationTitle("הגדרות")
+            .navigationTitle(L.t("הגדרות", "Settings"))
             .onAppear { token = eng.tgToken; chat = eng.tgChat; relays = eng.relays }
-            .confirmationDialog("לנתק את המכשיר מקבוצת הסנכרון?", isPresented: $confirmUnpair, titleVisibility: .visible) {
-                Button("התנתק", role: .destructive) { eng.unpair() }
-                Button("ביטול", role: .cancel) { }
+            .confirmationDialog(L.t("לנתק את המכשיר מקבוצת הסנכרון?", "Disconnect this device from the sync group?"), isPresented: $confirmUnpair, titleVisibility: .visible) {
+                Button(L.t("התנתק", "Leave"), role: .destructive) { eng.unpair() }
+                Button(L.t("ביטול", "Cancel"), role: .cancel) { }
             }
         }
     }
     private func saveTelegram() {
         let t = token.trimmingCharacters(in: .whitespacesAndNewlines), c = chat.trimmingCharacters(in: .whitespacesAndNewlines)
-        if t.isEmpty { eng.setTelegram(token: "", chat: ""); msg = "אחסון Telegram בוטל"; return }
-        if !c.isEmpty { eng.setTelegram(token: t, chat: c); msg = "אחסון Telegram נשמר"; return }
+        if t.isEmpty { eng.setTelegram(token: "", chat: ""); msg = L.t("אחסון Telegram בוטל", "Telegram storage was turned off"); return }
+        if !c.isEmpty { eng.setTelegram(token: t, chat: c); msg = L.t("אחסון Telegram נשמר", "Telegram storage was saved"); return }
         Task {
             let found = try? await Telegram.findChat(token: t)
             await MainActor.run {
-                if let id = found ?? nil, !id.isEmpty { chat = id; eng.setTelegram(token: t, chat: id); msg = "אחסון Telegram נשמר" }
-                else { msg = "לא נמצאה הודעה לבוט. שלח לו ‎/start‎ ונסה שוב." }
+                if let id = found ?? nil, !id.isEmpty { chat = id; eng.setTelegram(token: t, chat: id); msg = L.t("אחסון Telegram נשמר", "Telegram storage was saved") }
+                else { msg = L.t("לא נמצאה הודעה לבוט. שלח לו הודעה ונסה שוב.", "No message to the bot was found. Send it a message and try again.") }
             }
         }
     }

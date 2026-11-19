@@ -4,3 +4,4 @@ ios/*.xcodeproj/
 ios/*.ipa
 ios/Cliport/Info.plist
 *.tmp
+docs/guide/img/logo.png

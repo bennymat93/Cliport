@@ -43,6 +43,14 @@ namespace Cliport
         }
     }
 
+    /// <summary>Two-language UI: every user-facing string is written as L.T(hebrew, english).</summary>
+    static class L
+    {
+        public static bool En;
+        public static bool Rtl { get { return !En; } }
+        public static string T(string he, string en) { return En ? en : he; }
+    }
+
     static class Log
     {
         static readonly object L = new object();

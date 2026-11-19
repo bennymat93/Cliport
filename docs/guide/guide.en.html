@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cliport - User guide</title>
+<link rel="stylesheet" href="guide.css">
+</head>
+<body>
+<div class="page">
+
+<div class="cover">
+  <img class="logo" src="img/logo.png" alt="">
+  <h1>Cliport</h1>
+  <p class="tag">A real-time shared clipboard for PCs, iPhone and iPad</p>
+  <p class="ver">User guide · Version 1.0</p>
+</div>
+
+<div class="toc">
+  <h2>Contents</h2>
+  <ol>
+    <li><a href="#what">What Cliport does</a></li>
+    <li><a href="#install">Installing and pairing on a PC</a></li>
+    <li><a href="#main">The main window</a></li>
+    <li><a href="#copy">Copy and paste between devices</a></li>
+    <li><a href="#pins">Pins</a></li>
+    <li><a href="#files">Sharing files</a></li>
+    <li><a href="#devices">Devices</a></li>
+    <li><a href="#rdp">Remote Desktop</a></li>
+    <li><a href="#settings">Settings, language and theme</a></li>
+    <li><a href="#ios">iPhone and iPad</a></li>
+    <li><a href="#recovery">Recovering from problems</a></li>
+    <li><a href="#keys">Keyboard shortcuts</a></li>
+    <li><a href="#privacy">Privacy and security</a></li>
+    <li><a href="#faq">Troubleshooting</a></li>
+  </ol>
+</div>
+
+<h2 id="what">1. What Cliport does</h2>
+<p>Cliport connects the clipboard of all your devices. Copy on one device and paste on another, with no extra step.</p>
+<ul>
+  <li><b>Real-time sync</b> of text and images between Windows PCs, iPhone and iPad.</li>
+  <li><b>Works from any network.</b> The devices do not need to share a network; an internet connection is enough.</li>
+  <li><b>Pins:</b> fixed items that are always available on every device.</li>
+  <li><b>File sharing:</b> copy a file on one device and paste it on another, after you approve it.</li>
+  <li><b>Remote Desktop:</b> one-click connection to any PC in the group.</li>
+  <li><b>End-to-end encryption:</b> only your devices can read the content.</li>
+</ul>
+
+<h2 id="install">2. Installing and pairing on a PC</h2>
+<p>There is nothing to install. Run <span class="k">Cliport.exe</span> and it stays active in the system tray (next to the clock).</p>
+<div class="fig"><img src="img/en/pair.png" alt=""><div class="cap">The pairing window shown on first run</div></div>
+<ol class="legend">
+  <li><b>Create a new group</b> - on the first device. A secret 26-character pairing code is created.</li>
+  <li><b>Join with an existing code</b> - on every other device. Enter the code shown on the first device and click "Join".</li>
+</ol>
+<p>After pairing, the code is shown. Keep it somewhere safe: it is used to add devices, and it is also the encryption key.</p>
+<div class="fig"><img src="img/en/code.png" alt=""><div class="cap">The pairing code. You can show it again at any time from the Tools menu or the toolbar</div></div>
+<div class="note">Accepting automatic start with Windows is recommended, so that sync is always on.</div>
+
+<h2 id="main">3. The main window</h2>
+<p>Open the window by double-clicking the Cliport icon in the system tray. Closing the window does not stop sync.</p>
+<div class="fig"><img src="img/en/main.png" alt=""><div class="cap">The main window, "Clipboard &amp; pins" page</div></div>
+<ol class="legend">
+  <li><b>Menu bar</b> - File, Edit, View, Tools and Help. Every action is here, with its keyboard shortcut.</li>
+  <li><b>Toolbar</b> - the common actions: send clipboard, copy, pin, delete, get file, pause, connect to a PC and pairing code.</li>
+  <li><b>View and help</b> - theme, language, user guide and About.</li>
+  <li><b>Navigation</b> - switch between the four pages: Clipboard &amp; pins, Devices, Remote Desktop, Settings.</li>
+  <li><b>Search</b> - filters history and pins as you type.</li>
+  <li><b>Pending file</b> - appears when another device copied a file. Shows its name, size and type.</li>
+  <li><b>Pins</b> - always shown at the top of the list.</li>
+  <li><b>History</b> - the most recent items copied on any device.</li>
+  <li><b>Status bar</b> - connection state, number of active relays and number of devices.</li>
+</ol>
+
+<h2 id="copy">4. Copy and paste between devices</h2>
+<p>There is nothing to learn: copy as usual (<span class="k">Ctrl+C</span>) on one device and paste as usual (<span class="k">Ctrl+V</span>) on another. The copy reaches your other devices in about a second.</p>
+<ul>
+  <li>Double-clicking an item in the list (or <span class="k">Enter</span>) copies it again to all devices.</li>
+  <li>The <b>Send</b> button re-sends whatever is on the clipboard right now.</li>
+  <li>The <b>Pause</b> button stops sync temporarily, for example before copying something sensitive.</li>
+  <li>Content that password managers mark as private is not sent.</li>
+</ul>
+
+<h2 id="pins">5. Pins</h2>
+<p>A pinned item stays available on every device until you unpin it. Good for addresses, account numbers, canned replies and the like.</p>
+<ul>
+  <li>To pin: select an item and click <b>Pin</b> (<span class="k">Ctrl+P</span>). Click again to unpin.</li>
+  <li>To paste quickly in any program: <span class="k">Ctrl+Alt+V</span>, choose an item and press <span class="k">Enter</span>.</li>
+</ul>
+<div class="fig small"><img src="img/en/pins.png" alt=""><div class="cap">The quick-paste popup (Ctrl+Alt+V)</div></div>
+
+<h2 id="files">6. Sharing files</h2>
+<p>Copy a file on one device as usual. Your other devices show a notice with the file's name, size and type. The file itself does not travel until you approve it.</p>
+<ol>
+  <li>On the destination PC, open a folder and press <span class="k">Ctrl+V</span>.</li>
+  <li>A confirmation window opens with the file details.</li>
+  <li>After you approve, the file is downloaded and pasted into the folder.</li>
+</ol>
+<div class="fig small"><img src="img/en/confirm.png" alt=""><div class="cap">The file paste confirmation</div></div>
+<ul>
+  <li>You can also click <b>Download now</b> in the main window and then paste in any program.</li>
+  <li>Files up to 25 MB travel directly. For larger files, set up Telegram storage (see Settings).</li>
+  <li>On a weak network, lost pieces are re-sent automatically and the pace adapts.</li>
+  <li>The device the file was copied on must be online when you paste.</li>
+</ul>
+
+<h2 id="devices">7. Devices</h2>
+<div class="fig"><img src="img/en/devices.png" alt=""><div class="cap">The Devices page</div></div>
+<ol class="legend">
+  <li><b>Device list</b> - every device in the group and its connection state.</li>
+  <li><b>Actions</b> - show the pairing code to add a device, remove a device from the list, or disconnect this PC from the group.</li>
+</ol>
+
+<h2 id="rdp">8. Remote Desktop</h2>
+<p>Cliport publishes each PC's addresses to the group (encrypted), so you can connect to it with one click.</p>
+<div class="fig"><img src="img/en/rdp.png" alt=""><div class="cap">The Remote Desktop page</div></div>
+<ol class="legend">
+  <li><b>This PC's state</b> - whether Remote Desktop is on, and whether Tailscale was detected.</li>
+  <li><b>PCs in the group</b> - double-click to connect. Cliport picks the reachable address by itself.</li>
+  <li><b>Actions</b> - connect, and enable Remote Desktop on this PC (needs administrator approval and Windows Pro).</li>
+</ol>
+<ul>
+  <li>Quick connect from anywhere: <span class="k">Ctrl+Alt+R</span>.</li>
+  <li>To connect across different networks, install <b>Tailscale</b> (free) on all devices and sign in to the same account.</li>
+  <li>The connection uses Windows Remote Desktop, at full quality and with automatic reconnect.</li>
+</ul>
+
+<h2 id="settings">9. Settings, language and theme</h2>
+<div class="fig"><img src="img/en/settings.png" alt=""><div class="cap">The Settings page</div></div>
+<ol class="legend">
+  <li><b>Language and theme</b> - Hebrew or English; light, dark, or "Device" (follows the Windows setting).</li>
+  <li><b>Start-up and approval</b> - start with Windows, and automatic approval of pasted files.</li>
+  <li><b>Telegram storage</b> - optional, for files over 25 MB. Set it up once and it is shared with all devices.</li>
+</ol>
+<div class="fig"><img src="img/en/dark.png" alt=""><div class="cap">The dark theme</div></div>
+<p>Further down the page you can set a <b>private relay server</b> (MQTT over TLS). It is added to the public relays and improves availability.</p>
+
+<h2 id="ios">10. iPhone and iPad</h2>
+<h3>Installing and pairing</h3>
+<ol>
+  <li>Install <span class="k">Cliport-v1.0-unsigned.ipa</span> with the tool you use for unsigned apps.</li>
+  <li>Open Cliport, enter the pairing code and tap "Join with this code".</li>
+  <li>Allow notifications.</li>
+</ol>
+<h3>From the PC to the device</h3>
+<p>Automatic. When "Stay connected in the background" is on, what you copy on a PC lands on the device's clipboard.</p>
+<h3>From the device to the PC</h3>
+<p>iOS does not let any app read the clipboard in the background. There are three ways around it:</p>
+<ul>
+  <li><b>Opening Cliport</b> sends the clipboard right away.</li>
+  <li><b>An automation</b> in the Shortcuts app: new Automation, "App", "Is Closed", "Run Immediately". Add the action "Get Clipboard" followed by Cliport's "Send text to all devices". From then on, leaving an app sends the clipboard.</li>
+  <li><b>Back Tap</b> or the Action Button: assign a shortcut with the same two actions.</li>
+</ul>
+<div class="note">To avoid a permission question on every clipboard read: Settings, Cliport, "Paste from Other Apps", choose "Allow".</div>
+<h3>Files</h3>
+<p>When another device offers a file, a notification shows its name, size and type. After you approve, the file goes to the clipboard and is also saved in the Files app, in the Cliport folder.</p>
+<h3>Remote Desktop</h3>
+<p>On the Computers tab, choose a PC and an address. The connection opens in Microsoft's Windows App (free on the App Store).</p>
+<h3>Language and theme</h3>
+<p>On the Settings tab, under Appearance: Hebrew or English; Light, Device or Dark.</p>
+
+<h2 id="recovery">11. Recovering from problems</h2>
+<p>Cliport repairs itself in levels. Each level shows a notification.</p>
+<table>
+  <tr><th>Level</th><th>What happens</th></tr>
+  <tr><td>0</td><td>A dropped connection reconnects by itself, and a stuck one is replaced. On a network change, reconnection is immediate.</td></tr>
+  <tr><td>1</td><td>After a crash or a hang, the program restarts automatically.</td></tr>
+  <tr><td>2</td><td>On repeated crashes, the cache and history are reset.</td></tr>
+  <tr><td>3</td><td>Settings are rebuilt. Pairing is kept.</td></tr>
+  <tr><td>4</td><td>Safe mode: basic sync only, until the problem is resolved.</td></tr>
+</table>
+<p>On iPhone and iPad the system does not allow an app to restart itself, so if the app stops a notification appears, and tapping it resumes sync.</p>
+
+<h2 id="keys">12. Keyboard shortcuts</h2>
+<table>
+  <tr><th>Shortcut</th><th>Action</th></tr>
+  <tr><td><span class="k">Ctrl+Alt+V</span></td><td>Quick paste from pins (in any program)</td></tr>
+  <tr><td><span class="k">Ctrl+Alt+R</span></td><td>Quick Remote Desktop connect (in any program)</td></tr>
+  <tr><td><span class="k">Enter</span></td><td>Copy the selected item to all devices</td></tr>
+  <tr><td><span class="k">Ctrl+P</span></td><td>Pin / unpin</td></tr>
+  <tr><td><span class="k">Del</span></td><td>Delete from history</td></tr>
+  <tr><td><span class="k">Ctrl+F</span></td><td>Search</td></tr>
+  <tr><td><span class="k">Ctrl+Shift+V</span></td><td>Send the clipboard now</td></tr>
+  <tr><td><span class="k">Ctrl+D</span></td><td>Download the pending file</td></tr>
+  <tr><td><span class="k">Ctrl+K</span></td><td>Show the pairing code</td></tr>
+  <tr><td><span class="k">Ctrl+1</span> to <span class="k">Ctrl+4</span></td><td>Switch pages</td></tr>
+  <tr><td><span class="k">F1</span></td><td>This guide</td></tr>
+</table>
+
+<h2 id="privacy">13. Privacy and security</h2>
+<ul>
+  <li>All content is encrypted on the device before it is sent (AES-256) and authenticated (HMAC-SHA256). The relay servers see only ciphertext.</li>
+  <li>The pairing code is the encryption key. Anyone who has it can join the group, so do not share it.</li>
+  <li>On a PC, the code, history and pins are stored encrypted under your Windows user account.</li>
+  <li>If the code leaks: leave the group on every device and create a new group.</li>
+</ul>
+
+<h2 id="faq">14. Troubleshooting</h2>
+<table>
+  <tr><th>Symptom</th><th>What to check</th></tr>
+  <tr><td>A copy does not reach another device</td><td>Does the status bar say "Connected and syncing" on both devices? Is sync paused? Do both devices use the same pairing code?</td></tr>
+  <tr><td>"Reconnecting..." for a long time</td><td>Is there an internet connection? Corporate networks sometimes block port 8883; in that case set up a private relay server.</td></tr>
+  <tr><td>Pasting a file does not work</td><td>Is the source device online? Is the file under 25 MB, or is Telegram storage set up?</td></tr>
+  <tr><td>Remote Desktop does not connect</td><td>Is Remote Desktop enabled on the target PC? Is Tailscale running on both sides?</td></tr>
+  <tr><td>A copy on the iPhone is not sent</td><td>Open Cliport, or set up the automation described in section 10.</td></tr>
+</table>
+<p class="foot">The activity log is in the data folder (Tools menu, "Open data folder and log").<br>Project page: github.com/bennymat93/Cliport</p>
+
+</div>
+</body>
+</html>

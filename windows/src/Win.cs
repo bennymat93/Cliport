@@ -291,7 +291,7 @@ namespace Cliport
                 {
                     string hit = null;
                     foreach (string a in addrs) if (Probe(a, port)) { hit = a; break; }
-                    if (hit == null) { fail("לא ניתן להגיע אל " + name + ". ודא שהמחשב דולק, ש-Remote Desktop מופעל בו, ושבשני המחשבים פועל Tailscale (לחיבור בין רשתות שונות)."); return; }
+                    if (hit == null) { fail(L.T("לא ניתן להגיע אל " + name + ". ודא שהמחשב דולק, ש-Remote Desktop מופעל בו, ושבשני המחשבים פועל Tailscale (לחיבור בין רשתות שונות).", "Cannot reach " + name + ". Make sure the PC is on, Remote Desktop is enabled on it, and Tailscale is running on both computers (needed across different networks).")); return; }
                     string dir = App.PathOf("rdp"); Directory.CreateDirectory(dir);
                     string file = Path.Combine(dir, string.Join("_", name.Split(Path.GetInvalidFileNameChars())) + ".rdp");
                     var sb = new StringBuilder();
@@ -319,7 +319,7 @@ namespace Cliport
                     Process.Start("mstsc.exe", "\"" + file + "\"");
                     Log.Write("rdp connect to " + name + " via " + hit);
                 }
-                catch (Exception e) { fail("חיבור RDP נכשל: " + e.Message); }
+                catch (Exception e) { fail(L.T("חיבור RDP נכשל: ", "Remote Desktop connection failed: ") + e.Message); }
             });
         }
     }
@@ -366,10 +366,10 @@ namespace Cliport
                 if (Level >= 4) SafeMode = true;
                 switch (Level)
                 {
-                    case 1: Notice = "התוכנה נסגרה באופן לא תקין והופעלה מחדש אוטומטית. הסנכרון פעיל."; break;
-                    case 2: Notice = "זוהו קריסות חוזרות. המטמון וההיסטוריה אופסו והתוכנה הופעלה מחדש. הסנכרון פעיל."; break;
-                    case 3: Notice = "הקריסות נמשכו. ההגדרות נבנו מחדש (הצימוד נשמר) והנעוצים יסונכרנו מחדש."; break;
-                    default: Notice = "התוכנה פועלת במצב בטוח (סנכרון בסיסי בלבד) עקב קריסות חוזרות. פרטים בקובץ app.log בתיקיית הנתונים."; break;
+                    case 1: Notice = L.T("התוכנה נסגרה באופן לא תקין והופעלה מחדש אוטומטית. הסנכרון פעיל.", "Cliport stopped unexpectedly and was restarted automatically. Sync is active."); break;
+                    case 2: Notice = L.T("זוהו קריסות חוזרות. המטמון וההיסטוריה אופסו והתוכנה הופעלה מחדש. הסנכרון פעיל.", "Repeated crashes were detected. The cache and history were reset and Cliport was restarted. Sync is active."); break;
+                    case 3: Notice = L.T("הקריסות נמשכו. ההגדרות נבנו מחדש (הצימוד נשמר) והנעוצים יסונכרנו מחדש.", "Crashes continued. Settings were rebuilt (pairing kept) and pins will sync again."); break;
+                    default: Notice = L.T("התוכנה פועלת במצב בטוח (סנכרון בסיסי בלבד) עקב קריסות חוזרות. פרטים בקובץ app.log בתיקיית הנתונים.", "Cliport is running in safe mode (basic sync only) after repeated crashes. See app.log in the data folder."); break;
                 }
             }
             var o = new Dictionary<string, object>(); var cl = new List<object>(); foreach (long c in crashes) cl.Add(c.ToString());

@@ -59,8 +59,8 @@ enum Notifier {
     static func setup() {
         let c = UNUserNotificationCenter.current()
         c.requestAuthorization(options: [.alert, .sound]) { _, _ in }
-        let accept = UNNotificationAction(identifier: "ACCEPT", title: "אשר הדבקה", options: [])
-        let decline = UNNotificationAction(identifier: "DECLINE", title: "דחה", options: [.destructive])
+        let accept = UNNotificationAction(identifier: "ACCEPT", title: L.t("אשר הדבקה", "Allow paste"), options: [])
+        let decline = UNNotificationAction(identifier: "DECLINE", title: L.t("דחה", "Decline"), options: [.destructive])
         c.setNotificationCategories([UNNotificationCategory(identifier: offerCategory, actions: [accept, decline], intentIdentifiers: [], options: [])])
     }
     private static func post(id: String, title: String, body: String, category: String? = nil, after: TimeInterval = 0) {
@@ -74,13 +74,13 @@ enum Notifier {
     static func fileOffer(_ o: Offer) {
         let f = o.files[0]
         let more = o.files.count > 1 ? " (+\(o.files.count - 1))" : ""
-        post(id: "offer", title: "לאשר הדבקת קובץ מ-\(o.fromName)?",
-             body: "שם: \(f.name)\(more)\nגודל: \(AppInfo.sizeText(o.total))\nסוג: \(Mime.label(f.name))", category: offerCategory)
+        post(id: "offer", title: L.t("לאשר הדבקת קובץ מ-\(o.fromName)?", "Allow pasting a file from \(o.fromName)?"),
+             body: L.t("שם: \(f.name)\(more)\nגודל: \(AppInfo.sizeText(o.total))\nסוג: \(Mime.label(f.name))", "Name: \(f.name)\(more)\nSize: \(AppInfo.sizeText(o.total))\nType: \(Mime.label(f.name))"), category: offerCategory)
     }
     /// Dead-man's switch: a notification scheduled 2.5 minutes ahead and pushed forward while we are alive.
     /// If the app crashes or iOS stops it, the notification fires and one tap brings the sync back.
     static func armDeadman() {
-        post(id: "deadman", title: "הסנכרון של Cliport נעצר", body: "האפליקציה הופסקה ברקע. הקש כדי לחדש את הסנכרון.", after: 150)
+        post(id: "deadman", title: L.t("הסנכרון של Cliport נעצר", "Cliport sync has stopped"), body: L.t("האפליקציה הופסקה ברקע. הקש כדי לחדש את הסנכרון.", "The app was stopped in the background. Tap to resume sync."), after: 150)
     }
     static func cancelDeadman() { UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ["deadman"]) }
 }
@@ -109,10 +109,10 @@ enum Recovery {
             if level >= 3 { Engine.shared.resetSettingsKeepingPairing() }
             if level >= 4 { safeMode = true }
             switch level {
-            case 1: notice = "האפליקציה נעצרה באופן לא תקין והסנכרון חודש."
-            case 2: notice = "זוהו קריסות חוזרות. המטמון וההיסטוריה אופסו והסנכרון חודש."
-            case 3: notice = "הקריסות נמשכו. ההגדרות נבנו מחדש (הצימוד נשמר)."
-            default: notice = "מצב בטוח: הפעילות ברקע הושבתה זמנית עקב קריסות חוזרות."
+            case 1: notice = L.t("האפליקציה נעצרה באופן לא תקין והסנכרון חודש.", "The app stopped unexpectedly and sync was resumed.")
+            case 2: notice = L.t("זוהו קריסות חוזרות. המטמון וההיסטוריה אופסו והסנכרון חודש.", "Repeated crashes were detected. The cache and history were reset and sync was resumed.")
+            case 3: notice = L.t("הקריסות נמשכו. ההגדרות נבנו מחדש (הצימוד נשמר).", "Crashes continued. Settings were rebuilt (pairing kept).")
+            default: notice = L.t("מצב בטוח: הפעילות ברקע הושבתה זמנית עקב קריסות חוזרות.", "Safe mode: background activity is temporarily off after repeated crashes.")
             }
         }
         ud.set(crashes, forKey: "crashes")

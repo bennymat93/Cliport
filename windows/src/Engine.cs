@@ -36,7 +36,7 @@ namespace Cliport
         public readonly List<PinItem> Pins = new List<PinItem>();
         public readonly Dictionary<string, DeviceInfo> Devices = new Dictionary<string, DeviceInfo>();
         public readonly List<string> History = new List<string>();
-        public bool Paused;
+        public bool Paused, Demo;
 
         public Action<string, string> TextIn;        // text, fromName
         public Action<Offer> OfferIn;
@@ -129,7 +129,7 @@ namespace Cliport
             foreach (var k in new List<string>(rxs.Keys))
             {
                 var rx = rxs[k];
-                if (now - rx.Last > 90000) FinishRx(k, "תם הזמן - המכשיר המקורי לא הגיב");
+                if (now - rx.Last > 90000) FinishRx(k, L.T("תם הזמן - המכשיר המקורי לא הגיב", "Timed out - the source device did not respond"));
             }
             FireStatus();
         }
@@ -155,7 +155,8 @@ namespace Cliport
             }
         }
         void FireStatus() { int u = UpCount; if (u != lastUp) { lastUp = u; Fire(StatusChanged); } }
-        public int UpCount { get { return Hub == null ? 0 : Hub.UpCount; } }
+        public int UpCount { get { return Demo ? 3 : Hub == null ? 0 : Hub.UpCount; } }
+        public int RelayCount { get { return Demo ? 3 : Hub == null ? 0 : Hub.Links.Count; } }
         static void Fire(Action a) { if (a != null) a(); }
 
         // ---------- wire ----------
@@ -205,7 +206,7 @@ namespace Cliport
                 case "fchunk": OnChunk(d); break;
             }
         }
-        string NameOf(string id) { DeviceInfo di; return Devices.TryGetValue(id, out di) && di.Name != "" ? di.Name : "מכשיר אחר"; }
+        string NameOf(string id) { DeviceInfo di; return Devices.TryGetValue(id, out di) && di.Name != "" ? di.Name : L.T("מכשיר אחר", "another device"); }
 
         // ---------- clipboard text ----------
         static string Hash(string s)
@@ -259,6 +260,8 @@ namespace Cliport
         /// retained state: a write into a socket that was already dead reports success, so this closes that gap.
         /// Receivers ignore it unless it is newer than what they have.
         /// </summary>
+        /// <summary>Forget what was synced last, so the next LocalText is sent even if the content is unchanged ("send now").</summary>
+        public void ForgetLast() { lastHash = ""; }
         void ReannounceClip()
         {
             if (pending != null) { PublishClip(pending); return; }
@@ -274,15 +277,38 @@ namespace Cliport
             SaveHistory(); Fire(HistoryChanged);
         }
         public void RemoveHistory(string text) { History.Remove(text); SaveHistory(); Fire(HistoryChanged); }
+        public void ClearHistory() { History.Clear(); SaveHistory(); Fire(HistoryChanged); }
+        /// <summary>--demo: sample content and devices, no network. Used to produce the user-guide screenshots.</summary>
+        public Offer LoadDemo()
+        {
+            Demo = true; Keys = KeyRing.FromCode("CLIPORTDEMOCODEAAAAAAAAAAA"); History.Clear(); Pins.Clear(); Devices.Clear();
+            string[] h = L.En
+                ? new[] { "https://github.com/bennymat93/Cliport", "Meeting moved to Thursday 14:30, room 4B", "SELECT name, total FROM orders WHERE status = 'open';", "Flight LY315 TLV-LHR, seat 23A", "Thanks! I will send the signed contract today." }
+                : new[] { "https://github.com/bennymat93/Cliport", "הפגישה עברה ליום חמישי ב-14:30, חדר 4B", "SELECT name, total FROM orders WHERE status = 'open';", "טיסה LY315 תל אביב-לונדון, מושב 23A", "תודה! אשלח את החוזה החתום עוד היום." };
+            History.AddRange(h);
+            string[] p = L.En ? new[] { "IBAN: IL62 0108 0000 0009 9999 999", "Office Wi-Fi: Guest-5G / welcome2026" } : new[] { "מספר חשבון: 12-345-678901", "Wi-Fi במשרד: Guest-5G / welcome2026" };
+            long t = App.Now();
+            foreach (string s in p) { var it = new PinItem(); it.Id = App.RandHex(6); it.Text = s; it.Ts = t--; Pins.Add(it); }
+            AddDemoDevice("iPhone 15 Pro", "ios", true, false); AddDemoDevice("iPad Air", "ios", true, false);
+            AddDemoDevice("OFFICE-PC", "win", true, true, "100.84.12.7", "192.168.1.20", "OFFICE-PC"); AddDemoDevice("LAPTOP-HOME", "win", false, true, "100.91.3.44", "LAPTOP-HOME");
+            var o = new Offer(); o.Fid = "demo"; o.From = "demo0"; o.FromName = "iPhone 15 Pro"; o.Ts = t;
+            var fe = new FileEntry(); fe.Name = L.T("דוח רבעוני.pdf", "Quarterly report.pdf"); fe.Size = 2516582; fe.Mime = "application/pdf"; o.Files.Add(fe);
+            return o;
+        }
+        void AddDemoDevice(string name, string plat, bool online, bool rdp, params string[] addrs)
+        {
+            var d = new DeviceInfo(); d.Id = "demo" + Devices.Count; d.Name = name; d.Plat = plat; d.Ver = App.Version; d.Online = online; d.Ts = App.Now();
+            d.RdpOn = rdp && online; d.RdpUser = "user"; d.Addrs.AddRange(addrs); Devices[d.Id] = d;
+        }
 
         // ---------- pins (last-writer-wins element set with tombstones) ----------
         public bool IsPinned(string text) { foreach (var p in Pins) if (!p.Del && p.Text == text) return true; return false; }
         public void Pin(string text)
         {
             if (string.IsNullOrEmpty(text) || IsPinned(text)) return;
-            if (text.Length > 16000) { if (Notify != null) Notify("נעיצה", "הטקסט ארוך מדי לנעיצה (מעל 16,000 תווים)."); return; }
+            if (text.Length > 16000) { if (Notify != null) Notify(L.T("נעיצה", "Pin"), L.T("הטקסט ארוך מדי לנעיצה (מעל 16,000 תווים).", "The text is too long to pin (over 16,000 characters).")); return; }
             int live = 0, total = 0; foreach (var p in Pins) if (!p.Del) { live++; total += p.Text.Length; }
-            if (live >= 60 || total + text.Length > 60000) { if (Notify != null) Notify("נעיצה", "הגעת למגבלת הנעוצים. בטל נעיצה של פריט אחר."); return; }
+            if (live >= 60 || total + text.Length > 60000) { if (Notify != null) Notify(L.T("נעיצה", "Pin"), L.T("הגעת למגבלת הנעוצים. בטל נעיצה של פריט אחר.", "Pin limit reached. Unpin another item first.")); return; }
             var it = new PinItem(); it.Id = App.RandHex(6); it.Text = text; it.Ts = App.Now(); Pins.Add(it);
             SavePins(); PublishPins(); Fire(PinsChanged);
         }
@@ -458,7 +484,7 @@ namespace Cliport
         public void RequestFile(Offer o, int idx, Action<int> progress, Action<string, string> done)
         {
             string key = o.Fid + ":" + idx;
-            if (rxs.ContainsKey(key)) { done(null, "ההעברה כבר מתבצעת"); return; }
+            if (rxs.ContainsKey(key)) { done(null, L.T("ההעברה כבר מתבצעת", "The transfer is already in progress")); return; }
             var rx = new Rx(); rx.O = o; rx.Idx = idx; rx.Progress = progress; rx.Done = done; rx.Last = App.Now();
             string dir = Path.Combine(App.PathOf("incoming"), o.Fid);
             string nm = o.Files[idx].Name;
@@ -467,7 +493,7 @@ namespace Cliport
             rx.Path = Path.Combine(dir, o.Files[idx].Name);
             rxs[key] = rx;
             var m = new Dictionary<string, object>(); m["t"] = "freq"; m["fid"] = o.Fid; m["idx"] = idx; m["to"] = o.From;
-            if (Send("ev", m, false) == 0) FinishRx(key, "אין חיבור לשרתי הממסר");
+            if (Send("ev", m, false) == 0) FinishRx(key, L.T("אין חיבור לשרתי הממסר", "No connection to the relay servers"));
         }
         void FinishRx(string key, string err)
         {
@@ -504,12 +530,12 @@ namespace Cliport
                             for (int i = 0; i < parts.Count; i++)
                             {
                                 byte[] plain = keys.Open(Telegram.Download(token, parts[i]));
-                                if (plain == null) throw new IOException("פענוח נכשל");
+                                if (plain == null) throw new IOException(L.T("פענוח נכשל", "decryption failed"));
                                 fs.Write(plain, 0, plain.Length);
                                 int pc = (i + 1) * 100 / parts.Count; post(delegate { if (rx.Progress != null) rx.Progress(pc); });
                             }
                     }
-                    catch (Exception e) { err = "הורדה מ-Telegram נכשלה: " + e.Message; }
+                    catch (Exception e) { err = L.T("הורדה מ-Telegram נכשלה: ", "Download from Telegram failed: ") + e.Message; }
                     post(delegate { FinishRx(key, err); });
                 });
             }
@@ -540,7 +566,7 @@ namespace Cliport
                 var res = new Dictionary<string, object>(); res["t"] = "fres"; res["fid"] = fid; res["idx"] = idx; res["to"] = to;
                 try
                 {
-                    if (o == null || idx < 0 || idx >= o.Files.Count || !File.Exists(o.Files[idx].Path)) throw new IOException("הקובץ כבר לא זמין במכשיר המקורי");
+                    if (o == null || idx < 0 || idx >= o.Files.Count || !File.Exists(o.Files[idx].Path)) throw new IOException(L.T("הקובץ כבר לא זמין במכשיר המקורי", "The file is no longer available on the source device"));
                     string path = o.Files[idx].Path; long size = new FileInfo(path).Length;
                     res["size"] = size;
                     using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
@@ -558,7 +584,7 @@ namespace Cliport
                             Log.Write("served via telegram: " + path);
                             return;
                         }
-                        if (size > MaxRelayFile) throw new IOException("הקובץ גדול מ-25MB. הגדר אחסון Telegram בהגדרות כדי להעביר קבצים גדולים.");
+                        if (size > MaxRelayFile) throw new IOException(L.T("הקובץ גדול מ-25MB. הגדר אחסון Telegram בהגדרות כדי להעביר קבצים גדולים.", "The file is larger than 25 MB. Set up Telegram storage in Settings to transfer large files."));
                         int total = (int)((size + Chunk - 1) / Chunk);
                         res["mode"] = "mqtt"; res["total"] = total;
                         hub.Publish(keys.Topic + "/ev", Pack(res), false);
@@ -588,7 +614,7 @@ namespace Cliport
             var m = new Dictionary<string, object>(); m["t"] = "fchunk"; m["fid"] = fid; m["idx"] = idx; m["seq"] = seq; m["total"] = total;
             m["data"] = Convert.ToBase64String(cb, 0, n);
             byte[] pkt = Pack(m); int tries = 0;
-            while (!hub.PublishOne(keys.Topic + "/f/" + to, pkt)) { if (++tries > 40) throw new IOException("החיבור אבד במהלך ההעברה"); Thread.Sleep(500); }
+            while (!hub.PublishOne(keys.Topic + "/f/" + to, pkt)) { if (++tries > 40) throw new IOException(L.T("החיבור אבד במהלך ההעברה", "The connection was lost during the transfer")); Thread.Sleep(500); }
         }
         /// <summary>The receiver is missing specific chunks: send just those again.</summary>
         void ServeNak(Dictionary<string, object> d)
@@ -697,7 +723,7 @@ namespace Cliport
         public static string Label(string name)
         {
             string e = Path.GetExtension(name).TrimStart('.').ToUpperInvariant();
-            return e == "" ? "קובץ" : "קובץ " + e;
+            return e == "" ? L.T("קובץ", "File") : L.T("קובץ " + e, e + " file");
         }
     }
 }

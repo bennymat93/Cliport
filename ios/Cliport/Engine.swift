@@ -41,6 +41,10 @@ final class Engine: ObservableObject {
     @Published var progress: Int = -1            // -1 = no transfer
     @Published var banner = ""
     @Published var paused = false
+    /// "he" / "en" / "" (follow the device language)
+    @Published var lang: String = UserDefaults.standard.string(forKey: "lang") ?? "" { didSet { UserDefaults.standard.set(lang, forKey: "lang") } }
+    /// "light" / "dark" / "system" (follow the device)
+    @Published var theme: String = UserDefaults.standard.string(forKey: "theme") ?? "system" { didSet { UserDefaults.standard.set(theme, forKey: "theme") } }
 
     private let ud = UserDefaults.standard
     private(set) var keys: KeyRing?
@@ -189,7 +193,7 @@ final class Engine: ObservableObject {
         refreshUp()
         let now = AppInfo.now()
         if now - lastDevPub > 60_000 { publishDev() }
-        for (k, rx) in rxs where now - rx.last > 90_000 { finishRx(k, "תם הזמן - המכשיר המקורי לא הגיב") }
+        for (k, rx) in rxs where now - rx.last > 90_000 { finishRx(k, L.t("תם הזמן - המכשיר המקורי לא הגיב", "Timed out - the source device did not respond")) }
         if paired && keepAlive && tickN % 16 == 0 { Notifier.armDeadman() }   // dead-man's switch: fires only if we stop running
     }
 
@@ -248,7 +252,7 @@ final class Engine: ObservableObject {
     }
     private func nameOf(_ id: String) -> String {
         if let n = devStore[id]?.name, !n.isEmpty { return n }
-        return "מכשיר אחר"
+        return L.t("מכשיר אחר", "another device")
     }
 
     // ---------- clipboard ----------
@@ -271,7 +275,7 @@ final class Engine: ObservableObject {
         UIPasteboard.general.string = text
         lastChangeCount = UIPasteboard.general.changeCount
         addHistory(text)
-        banner = "התקבל מ-" + nameOf(J.s(d, "from"))
+        banner = L.t("התקבל מ-", "Received from ") + nameOf(J.s(d, "from"))
         Log.write("clip in (\(text.count) chars)")
     }
     /// Foreground only (iOS does not let any app read the pasteboard in the background).
@@ -320,7 +324,7 @@ final class Engine: ObservableObject {
         }
         lastHash = h
         publishClip(["t": "clip", "kind": "text", "text": text])
-        banner = "נשלח לכל המכשירים"
+        banner = L.t("נשלח לכל המכשירים", "Sent to all devices")
         Log.write("clip out (\(text.count) chars)")
     }
     /// Copies an item (pin / history) to this device and to every other device.
@@ -370,7 +374,7 @@ final class Engine: ObservableObject {
     func pin(_ text: String) {
         guard !text.isEmpty, !isPinned(text) else { return }
         let live = pinStore.filter { !$0.del }
-        if text.count > 16_000 || live.count >= 60 || live.reduce(0, { $0 + $1.text.count }) + text.count > 60_000 { banner = "לא ניתן לנעוץ: חריגה ממגבלת הנעוצים"; return }
+        if text.count > 16_000 || live.count >= 60 || live.reduce(0, { $0 + $1.text.count }) + text.count > 60_000 { banner = L.t("לא ניתן לנעוץ: חריגה ממגבלת הנעוצים", "Cannot pin: the pin limit was reached"); return }
         pinStore.append(PinItem(id: AppInfo.randHex(6), text: text, ts: AppInfo.now(), del: false))
         pinsChanged(); publishPins()
     }
@@ -490,7 +494,7 @@ final class Engine: ObservableObject {
         if outQ.count > 8 { outgoing[outQ.removeFirst()] = nil }
         publishClip(["t": "offer", "fid": o.fid, "image": image,
                      "files": files.map { ["name": $0.name, "size": $0.size, "mime": $0.mime] as [String: Any] }])
-        banner = "הקובץ זמין להדבקה בכל המכשירים"
+        banner = L.t("הקובץ זמין להדבקה בכל המכשירים", "The file is ready to paste on all devices")
         Log.write("offer out: \(files.count) file(s)")
     }
     private func onOffer(_ d: [String: Any]) {
@@ -506,7 +510,7 @@ final class Engine: ObservableObject {
                 guard let url = url, let img = UIImage(contentsOfFile: url.path) else { return }
                 UIPasteboard.general.image = img
                 self.lastChangeCount = UIPasteboard.general.changeCount
-                self.banner = "תמונה התקבלה מ-" + o.fromName
+                self.banner = L.t("תמונה התקבלה מ-", "Image received from ") + o.fromName
             }
             return
         }
@@ -527,7 +531,7 @@ final class Engine: ObservableObject {
         func next(_ idx: Int) {
             requestFile(o, idx) { url, err in
                 guard let url = url else {
-                    self.progress = -1; self.banner = "העברת הקובץ נכשלה: " + (err ?? ""); Notifier.info("העברת הקובץ נכשלה", err ?? ""); return
+                    self.progress = -1; self.banner = L.t("העברת הקובץ נכשלה: ", "File transfer failed: ") + (err ?? ""); Notifier.info(L.t("העברת הקובץ נכשלה", "File transfer failed"), err ?? ""); return
                 }
                 got.append(url)
                 if idx + 1 < o.files.count { next(idx + 1); return }
@@ -538,8 +542,8 @@ final class Engine: ObservableObject {
                     UIPasteboard.general.setItemProviders(got.compactMap { NSItemProvider(contentsOf: $0) }, localOnly: false, expirationDate: nil)
                 }
                 self.lastChangeCount = UIPasteboard.general.changeCount
-                self.banner = "הקובץ מוכן - אפשר להדביק. נשמר גם ב\"קבצים\" ← Cliport"
-                Notifier.info("הקובץ מוכן להדבקה", o.files[0].name)
+                self.banner = L.t("הקובץ מוכן - אפשר להדביק. נשמר גם באפליקציית קבצים, בתיקיית Cliport", "The file is ready to paste. It is also saved in the Files app, in the Cliport folder")
+                Notifier.info(L.t("הקובץ מוכן להדבקה", "The file is ready to paste"), o.files[0].name)
             }
         }
         next(0)
@@ -549,7 +553,7 @@ final class Engine: ObservableObject {
     // ---------- files: receive ----------
     private func requestFile(_ o: Offer, _ idx: Int, done: @escaping (URL?, String?) -> Void) {
         let key = "\(o.fid):\(idx)"
-        if rxs[key] != nil { done(nil, "ההעברה כבר מתבצעת"); return }
+        if rxs[key] != nil { done(nil, L.t("ההעברה כבר מתבצעת", "The transfer is already in progress")); return }
         let dir = AppInfo.docs.appendingPathComponent("Received", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         // never overwrite a file received earlier under the same name: "name (2).ext"
@@ -562,7 +566,7 @@ final class Engine: ObservableObject {
             n += 1
         }
         rxs[key] = Rx(offer: o, idx: idx, url: url, done: done)
-        if send("ev", ["t": "freq", "fid": o.fid, "idx": idx, "to": o.from], retain: false) == 0 { finishRx(key, "אין חיבור לשרתי הממסר") }
+        if send("ev", ["t": "freq", "fid": o.fid, "idx": idx, "to": o.from], retain: false) == 0 { finishRx(key, L.t("אין חיבור לשרתי הממסר", "No connection to the relay servers")) }
     }
     private func openRx(_ rx: Rx) {
         guard rx.handle == nil else { return }
@@ -596,10 +600,10 @@ final class Engine: ObservableObject {
                 do {
                     for (i, part) in parts.enumerated() {
                         let sealed = try await Telegram.download(token: token, fileId: part)
-                        guard let plain = k.open(sealed) else { throw NSError(domain: "sc", code: 1, userInfo: [NSLocalizedDescriptionKey: "פענוח נכשל"]) }
+                        guard let plain = k.open(sealed) else { throw NSError(domain: "sc", code: 1, userInfo: [NSLocalizedDescriptionKey: L.t("פענוח נכשל", "decryption failed")]) }
                         await MainActor.run { rx.handle?.write(plain); self.progress = (i + 1) * 100 / max(parts.count, 1) }
                     }
-                } catch { failure = "הורדה מ-Telegram נכשלה: " + error.localizedDescription }
+                } catch { failure = L.t("הורדה מ-Telegram נכשלה: ", "Download from Telegram failed: ") + error.localizedDescription }
                 let f = failure
                 await MainActor.run { self.finishRx(key, f) }
             }
@@ -625,14 +629,14 @@ final class Engine: ObservableObject {
         let base: [String: Any] = ["t": "fres", "fid": fid, "idx": idx, "to": to]
         let fail: (String) -> Void = { [weak self] msg in self?.reply(base, ["mode": "err", "err": msg]); Log.write("serve failed: \(msg)") }
         guard let o = outgoing[fid], idx >= 0, idx < o.files.count, let url = o.files[idx].url, FileManager.default.fileExists(atPath: url.path) else {
-            fail("הקובץ כבר לא זמין במכשיר המקורי"); return
+            fail(L.t("הקובץ כבר לא זמין במכשיר המקורי", "The file is no longer available on the source device")); return
         }
         let size = o.files[idx].size
         if tgReady, let k = keys {
             let token = tgToken, chat = tgChat
             Task {
                 do {
-                    guard let h = try? FileHandle(forReadingFrom: url) else { throw NSError(domain: "sc", code: 2, userInfo: [NSLocalizedDescriptionKey: "לא ניתן לקרוא את הקובץ"]) }
+                    guard let h = try? FileHandle(forReadingFrom: url) else { throw NSError(domain: "sc", code: 2, userInfo: [NSLocalizedDescriptionKey: L.t("לא ניתן לקרוא את הקובץ", "The file cannot be read")]) }
                     var parts: [String] = []; var n = 0
                     while true {
                         let piece = h.readData(ofLength: Engine.tgPart)
@@ -645,13 +649,13 @@ final class Engine: ObservableObject {
                     await MainActor.run { self.reply(base, ["mode": "tg", "parts": p, "size": size]) }
                 } catch {
                     let msg = error.localizedDescription
-                    await MainActor.run { fail("העלאה ל-Telegram נכשלה: " + msg) }
+                    await MainActor.run { fail(L.t("העלאה ל-Telegram נכשלה: ", "Upload to Telegram failed: ") + msg) }
                 }
             }
             return
         }
-        if size > Engine.maxRelayFile { fail("הקובץ גדול מ-25MB. הגדר אחסון Telegram בהגדרות כדי להעביר קבצים גדולים."); return }
-        guard let h = try? FileHandle(forReadingFrom: url) else { fail("לא ניתן לקרוא את הקובץ"); return }
+        if size > Engine.maxRelayFile { fail(L.t("הקובץ גדול מ-25MB. הגדר אחסון Telegram בהגדרות כדי להעביר קבצים גדולים.", "The file is larger than 25 MB. Set up Telegram storage in Settings to transfer large files.")); return }
+        guard let h = try? FileHandle(forReadingFrom: url) else { fail(L.t("לא ניתן לקרוא את הקובץ", "The file cannot be read")); return }
         let total = Int((size + Int64(Engine.chunk) - 1) / Int64(Engine.chunk))
         reply(base, ["mode": "mqtt", "total": total, "size": size])
         let paceKey = "\(fid):\(idx):\(to)"
@@ -664,7 +668,7 @@ final class Engine: ObservableObject {
                 DispatchQueue.main.asyncAfter(deadline: .now() + (self.pace[paceKey] ?? 0.03)) { sendChunk(seq + 1, 0, nil) }
             } else if tries < 40 {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { sendChunk(seq, tries + 1, data) }
-            } else { try? h.close(); self.pace[paceKey] = nil; fail("החיבור אבד במהלך ההעברה") }
+            } else { try? h.close(); self.pace[paceKey] = nil; fail(L.t("החיבור אבד במהלך ההעברה", "The connection was lost during the transfer")) }
         }
         sendChunk(0, 0, nil)
     }

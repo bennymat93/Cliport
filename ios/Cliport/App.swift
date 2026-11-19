@@ -26,14 +26,14 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         UNUserNotificationCenter.current().delegate = self
         Notifier.setup()
         Engine.shared.start()
-        if let n = Recovery.notice { Notifier.info("Cliport - התאוששות (דרגה \(Recovery.level))", n) }
+        if let n = Recovery.notice { Notifier.info(L.t("Cliport - התאוששות (דרגה \(Recovery.level))", "Cliport - recovery (level \(Recovery.level))"), n) }
         return true
     }
     func applicationWillTerminate(_ application: UIApplication) {
         Recovery.markAlive(false)
         if Engine.shared.paired && Engine.shared.keepAlive {
             Notifier.cancelDeadman()
-            Notifier.info("הסנכרון של Cliport נעצר", "האפליקציה נסגרה. הקש כדי לחדש את הסנכרון.")
+            Notifier.info(L.t("הסנכרון של Cliport נעצר", "Cliport sync has stopped"), L.t("האפליקציה נסגרה. הקש כדי לחדש את הסנכרון.", "The app was closed. Tap to resume sync."))
         }
     }
     func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
@@ -55,11 +55,11 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
 // ---------- Shortcuts actions (used by automations, Back Tap, Action Button, Home Screen shortcuts) ----------
 
 struct SendTextIntent: AppIntent {
-    static var title: LocalizedStringResource = "שלח טקסט לכל המכשירים"
-    static var description = IntentDescription("שולח טקסט (למשל את תוכן הלוח) לכל המכשירים המצומדים ב-Cliport.")
+    static var title: LocalizedStringResource = "שלח טקסט לכל המכשירים · Send text to all devices"
+    static var description = IntentDescription("שולח טקסט (למשל את תוכן הלוח) לכל המכשירים המצומדים. Sends text (for example the clipboard) to all paired devices.")
     static var openAppWhenRun: Bool = false
 
-    @Parameter(title: "טקסט")
+    @Parameter(title: "טקסט · Text")
     var text: String
 
     func perform() async throws -> some IntentResult {
@@ -69,8 +69,8 @@ struct SendTextIntent: AppIntent {
 }
 
 struct LatestClipIntent: AppIntent {
-    static var title: LocalizedStringResource = "קבל את הפריט האחרון מ-Cliport"
-    static var description = IntentDescription("מחזיר את הטקסט האחרון שסונכרן.")
+    static var title: LocalizedStringResource = "קבל את הפריט האחרון · Get the latest item"
+    static var description = IntentDescription("מחזיר את הטקסט האחרון שסונכרן. Returns the most recently synced text.")
     static var openAppWhenRun: Bool = false
 
     func perform() async throws -> some IntentResult & ReturnsValue<String> {
@@ -80,11 +80,11 @@ struct LatestClipIntent: AppIntent {
 }
 
 struct ConnectPCIntent: AppIntent {
-    static var title: LocalizedStringResource = "התחבר למחשב (RDP)"
-    static var description = IntentDescription("פותח חיבור שולחן עבודה מרוחק למחשב מהקבוצה לפי שמו.")
+    static var title: LocalizedStringResource = "התחבר למחשב · Connect to a PC (RDP)"
+    static var description = IntentDescription("פותח חיבור שולחן עבודה מרוחק למחשב לפי שמו. Opens a Remote Desktop connection to a PC by name.")
     static var openAppWhenRun: Bool = true
 
-    @Parameter(title: "שם המחשב")
+    @Parameter(title: "שם המחשב · PC name")
     var name: String
 
     func perform() async throws -> some IntentResult {

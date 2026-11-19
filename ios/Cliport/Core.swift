@@ -19,6 +19,16 @@ enum AppInfo {
     static var caches: URL { FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0] }
 }
 
+/// Two-language UI: every user-facing string is written as L.t(hebrew, english).
+enum L {
+    static var en: Bool {
+        let v = UserDefaults.standard.string(forKey: "lang") ?? ""
+        if v.isEmpty { return !(Locale.preferredLanguages.first ?? "he").hasPrefix("he") }
+        return v == "en"
+    }
+    static func t(_ he: String, _ en: String) -> String { self.en ? en : he }
+}
+
 enum Log {
     private static let q = DispatchQueue(label: "sc.log")
     static func write(_ msg: String) {
@@ -184,6 +194,6 @@ enum Mime {
     }
     static func label(_ name: String) -> String {
         let e = (name as NSString).pathExtension.uppercased()
-        return e.isEmpty ? "קובץ" : "קובץ " + e
+        return e.isEmpty ? L.t("קובץ", "File") : L.t("קובץ " + e, e + " file")
     }
 }
