@@ -1,4 +1,4 @@
-﻿# Builds dist\Cliport.exe with the C# compiler that ships with Windows (.NET Framework 4.8). No SDK needed.
+# Builds dist\Cliport.exe with the C# compiler that ships with Windows (.NET Framework 4.8). No SDK needed.
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $csc = "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
@@ -23,7 +23,7 @@ if (-not (Test-Path $logo)) {
 $cscArgs = @('/nologo', '/target:winexe', '/optimize+', '/platform:anycpu', '/codepage:65001', '/warn:3',
     "/out:$out\Cliport.exe",
     '/r:System.dll', '/r:System.Core.dll', '/r:System.Drawing.dll', '/r:System.Windows.Forms.dll',
-    '/r:System.Web.Extensions.dll', '/r:System.Security.dll',
+    '/r:System.Web.Extensions.dll', '/r:System.Security.dll', '/r:System.IO.Compression.dll', '/r:System.IO.Compression.FileSystem.dll',
     "/resource:$logo,logo.png")
 if (Test-Path $icon) { $cscArgs += "/win32icon:$icon" }
 # the user guide is embedded in the program (built by docs\build-guide.ps1)
@@ -35,3 +35,13 @@ $cscArgs += (Get-ChildItem (Join-Path $root 'windows\src\*.cs') | ForEach-Object
 & $csc $cscArgs
 if ($LASTEXITCODE -ne 0) { throw "Build failed ($LASTEXITCODE)" }
 "Built: $out\Cliport.exe ($([math]::Round((Get-Item "$out\Cliport.exe").Length / 1KB)) KB)"
+
+# installer (per-user, no admin): the program is embedded in it
+$setupArgs = @('/nologo', '/target:winexe', '/optimize+', '/platform:anycpu', '/codepage:65001', '/warn:3',
+    "/out:$out\Cliport-Setup.exe", '/r:System.dll', '/r:System.Core.dll', '/r:System.Windows.Forms.dll',
+    "/resource:$out\Cliport.exe,Cliport.exe")
+if (Test-Path $icon) { $setupArgs += "/win32icon:$icon" }
+$setupArgs += (Join-Path $root 'tools\Setup.cs')
+& $csc $setupArgs
+if ($LASTEXITCODE -ne 0) { throw "Installer build failed ($LASTEXITCODE)" }
+"Built: $out\Cliport-Setup.exe ($([math]::Round((Get-Item "$out\Cliport-Setup.exe").Length / 1KB)) KB)"

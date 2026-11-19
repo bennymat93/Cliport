@@ -12,6 +12,7 @@ struct FileEntry {
 }
 struct Offer: Identifiable {
     var fid: String; var from: String; var fromName: String; var image: Bool; var ts: Int64; var files: [FileEntry]
+    var text = false                 // a very large text clip travelling as a .txt file
     var id: String { fid }
     var total: Int64 { files.reduce(0) { $0 + $1.size } }
 }
@@ -96,6 +97,11 @@ final class Engine: ObservableObject {
     var tgChat: String { ud.string(forKey: "tgChat") ?? "" }
     var tgReady: Bool { !tgToken.isEmpty && !tgChat.isEmpty }
     var relays: String { ud.string(forKey: "relays") ?? "" }
+    /// How a very large text arrives: "both" (text on the pasteboard + file in Files), "text", or "file".
+    var bigText: String {
+        get { ud.string(forKey: "bigText") ?? "both" }
+        set { ud.set(newValue, forKey: "bigText"); objectWillChange.send() }
+    }
     var cfgTs: Int64 { Int64(ud.double(forKey: "cfgTs")) }
     var keepAlive: Bool {
         get { ud.object(forKey: "keepAlive") == nil ? true : ud.bool(forKey: "keepAlive") }
@@ -204,6 +210,7 @@ final class Engine: ObservableObject {
         refreshUp()
         let now = AppInfo.now()
         if now - lastDevPub > 60_000 { publishDev() }
+        autoBackupIfDue(now)
         for (k, rx) in rxs where now - rx.last > 90_000 { finishRx(k, L.t("תם הזמן - המכשיר המקורי לא הגיב", "Timed out - the source device did not respond")) }
         if paired && keepAlive && tickN % 16 == 0 { Notifier.armDeadman() }   // dead-man's switch: fires only if we stop running
     }
@@ -329,9 +336,9 @@ final class Engine: ObservableObject {
         if h == lastHash { return }
         addHistory(text)
         if text.utf8.count > Engine.maxInlineText {
-            let url = tempURL("clipboard-text.txt")
+            let url = tempURL("Cliport-text-\(AppInfo.now()).txt")
             try? Data(text.utf8).write(to: url)
-            localFiles([url], image: false); lastHash = h; return
+            localFiles([url], image: false, text: true); lastHash = h; return
         }
         lastHash = h
         publishClip(["t": "clip", "kind": "text", "text": text])
@@ -489,7 +496,7 @@ final class Engine: ObservableObject {
     private static func signature(_ files: [FileEntry]) -> String {
         hash("F:" + files.map { "\($0.name)|\($0.size);" }.joined())
     }
-    func localFiles(_ urls: [URL], image: Bool) {
+    func localFiles(_ urls: [URL], image: Bool, text: Bool = false) {
         guard paired, !paused else { return }
         var files: [FileEntry] = []
         for u in urls {
@@ -503,7 +510,7 @@ final class Engine: ObservableObject {
         let o = Offer(fid: AppInfo.randHex(8), from: deviceId, fromName: deviceName, image: image, ts: AppInfo.now(), files: files)
         outgoing[o.fid] = o; outQ.append(o.fid)
         if outQ.count > 8 { outgoing[outQ.removeFirst()] = nil }
-        publishClip(["t": "offer", "fid": o.fid, "image": image,
+        publishClip(["t": "offer", "fid": o.fid, "image": image, "text": text,
                      "files": files.map { ["name": $0.name, "size": $0.size, "mime": $0.mime] as [String: Any] }])
         banner = L.t("הקובץ זמין להדבקה בכל המכשירים", "The file is ready to paste on all devices")
         Log.write("offer out: \(files.count) file(s)")
@@ -516,6 +523,26 @@ final class Engine: ObservableObject {
         lastHash = Engine.signature(files)
         Log.write("offer in: \(files[0].name)")
         offerReady = []
+        if J.b(d, "text") && o.total <= 30 * 1024 * 1024 {
+            // a very large text: fetch it right away and put it on the pasteboard the way the user chose
+            banner = L.t("מקבל טקסט גדול מ-", "Receiving a large text from ") + o.fromName
+            requestFile(o, 0) { url, err in
+                guard let url = url, let data = try? Data(contentsOf: url) else { self.banner = L.t("קבלת הטקסט נכשלה: ", "Receiving the text failed: ") + (err ?? ""); return }
+                var s = String(decoding: data, as: UTF8.self)
+                if s.hasPrefix("\u{FEFF}") { s.removeFirst() }
+                if self.bigText == "file", let provider = NSItemProvider(contentsOf: url) {
+                    UIPasteboard.general.setItemProviders([provider], localOnly: false, expirationDate: nil)
+                } else {
+                    UIPasteboard.general.string = s
+                }
+                self.lastChangeCount = UIPasteboard.general.changeCount
+                self.lastHash = Engine.hash(s)
+                self.addHistory(s)
+                self.offerReady = self.bigText == "text" ? [] : [url]
+                self.banner = L.t("טקסט גדול התקבל מ-", "Large text received from ") + o.fromName
+            }
+            return
+        }
         if o.image && o.total <= 15 * 1024 * 1024 {
             requestFile(o, 0) { url, _ in
                 guard let url = url, let img = UIImage(contentsOfFile: url.path) else { return }
@@ -643,7 +670,7 @@ final class Engine: ObservableObject {
             fail(L.t("הקובץ כבר לא זמין במכשיר המקורי", "The file is no longer available on the source device")); return
         }
         let size = o.files[idx].size
-        if tgReady, let k = keys {
+        if tgReady, size > 4 * 1024 * 1024, let k = keys {       // Telegram only where it helps: big files
             let token = tgToken, chat = tgChat
             Task {
                 do {
@@ -814,6 +841,15 @@ final class Engine: ObservableObject {
         Log.write("local backup created")
     }
     func deleteLocal(_ b: BackupInfo) { try? FileManager.default.removeItem(at: b.url); reloadBackups() }
+    /// One automatic backup a day, the newest five are kept.
+    private func autoBackupIfDue(_ now: Int64) {
+        guard paired, now - Int64(ud.double(forKey: "autoBackupTs")) >= 24 * 3600 * 1000 else { return }
+        ud.set(Double(now), forKey: "autoBackupTs")
+        saveLocal(name: L.t("אוטומטי - יומי", "Automatic - daily"), desc: L.t("נוצר אוטומטית פעם ביום", "Created automatically once a day"), withHistory: false)
+        let autos = backups.filter { $0.name == "אוטומטי - יומי" || $0.name == "Automatic - daily" }
+        for b in autos.dropFirst(5) { try? FileManager.default.removeItem(at: b.url) }
+        if autos.count > 5 { reloadBackups() }
+    }
     /// Writes a copy that can be shared or saved to Files; with a password the content is encrypted.
     func exportFile(_ b: BackupInfo, password: String) -> URL? {
         var data = b.data

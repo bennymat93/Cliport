@@ -6,6 +6,16 @@
 
 A real-time shared clipboard for Windows PCs, iPhone and iPad. Works from any network, end-to-end encrypted.
 
+## הורדות · Downloads
+
+| קובץ | למה |
+|---|---|
+| [Cliport-v1.0-Setup.exe](https://github.com/bennymat93/Cliport/releases/latest/download/Cliport-v1.0-Setup.exe) | Windows: התקנה למשתמש הנוכחי, עם קיצורי דרך והסרה. ללא הרשאות מנהל |
+| [Cliport-v1.0-portable.exe](https://github.com/bennymat93/Cliport/releases/latest/download/Cliport-v1.0-portable.exe) | Windows: הפעלה ללא התקנה |
+| [Cliport-v1.0-unsigned.ipa](https://github.com/bennymat93/Cliport/releases/latest/download/Cliport-v1.0-unsigned.ipa) | iPhone / iPad: קובץ לא חתום, להתקנה בכלי להתקנת אפליקציות לא חתומות |
+
+כל הקבצים נמצאים ב[עמוד ההורדות](https://github.com/bennymat93/Cliport/releases/latest). הקבצים אינם חתומים דיגיטלית, ולכן Windows עשוי להציג אזהרת SmartScreen בהפעלה הראשונה. אין גרסת Android.
+
 ## מדריך למשתמש · User guide
 
 | | |
@@ -21,7 +31,8 @@ A real-time shared clipboard for Windows PCs, iPhone and iPad. Works from any ne
 
 - **סנכרון בזמן אמת** של טקסט ותמונות. מעתיקים במכשיר אחד, מדביקים באחר.
 - **נעוצים** שזמינים בכל המכשירים, עם הדבקה מהירה (`Ctrl+Alt+V`).
-- **שיתוף קבצים:** הקובץ עובר רק אחרי אישור שמציג שם, גודל וסוג.
+- **שיתוף קבצים:** הקובץ עובר רק אחרי אישור שמציג שם, גודל וסוג. תיקייה נשלחת כקובץ zip.
+- **טקסט גדול מאוד** (מעל 180KB) מגיע כטקסט וגם כקובץ, לפי המקום שבו מדביקים, או לפי בחירה בהגדרות.
 - **שולחן עבודה מרוחק** בלחיצה אחת בין המכשירים (`Ctrl+Alt+R`).
 - **עמידות לרשת חלשה:** דחיסה, שידור חוזר של חלקים שאבדו, התאמת קצב והתחברות מיידית בשינוי רשת.
 - **התאוששות אוטומטית מקריסות** בחמש דרגות, עם התראה בכל דרגה.
@@ -33,6 +44,7 @@ A real-time shared clipboard for Windows PCs, iPhone and iPad. Works from any ne
 | נתיב | תוכן |
 |---|---|
 | `dist/Cliport.exe` | תוכנת Windows מוכנה להרצה, ללא התקנה (דורשת ‎.NET Framework 4.8, שמובנה ב־Windows 10/11) |
+| `dist/Cliport-Setup.exe` | קובץ התקנה ל־Windows (`/S` להתקנה שקטה) |
 | `windows/src/` | קוד המקור של תוכנת Windows (C#) |
 | `ios/` | קוד המקור של אפליקציית iOS/iPadOS (Swift / SwiftUI, ‏iOS 16 ומעלה) |
 | `.github/workflows/build-ipa.yml` | בנייה אוטומטית של IPA לא חתום ב־GitHub Actions |
@@ -43,9 +55,9 @@ A real-time shared clipboard for Windows PCs, iPhone and iPad. Works from any ne
 
 ## התקנה
 
-**Windows:** מפעילים את `dist\Cliport.exe`. במחשב הראשון בוחרים "צור קבוצה חדשה", ובשאר המכשירים מזינים את הקוד שהוצג.
+**Windows:** מורידים ומפעילים את קובץ ההתקנה או את הגרסה הניידת (ראה "הורדות"). במחשב הראשון בוחרים "צור קבוצה חדשה", ובשאר המכשירים מזינים את הקוד שהוצג או משחזרים מגיבוי.
 
-**אייפון / אייפד:** בלשונית Actions בריפו, מהריצה האחרונה של "Build unsigned IPA", מורידים את `Cliport-v1.0-unsigned-ipa` ומתקינים בכלי להתקנת אפליקציות לא חתומות.
+**אייפון / אייפד:** מורידים את קובץ ה־IPA (ראה "הורדות") ומתקינים בכלי להתקנת אפליקציות לא חתומות.
 
 ## התקנה אוטומטית משורת הפקודה
 
@@ -69,8 +81,8 @@ A real-time shared clipboard for Windows PCs, iPhone and iPad. Works from any ne
 - **אייפון ← מחשב אינו אוטומטי לגמרי.** iOS חוסם קריאת לוח ברקע. הלוח נשלח בפתיחת האפליקציה, או באוטומציה של "קיצורים" (מוסבר במדריך).
 - **אישור קובץ ב־iOS** מופיע כשהקובץ מוצע, ולא ברגע ההדבקה.
 - **שרתי הממסר הציבוריים** ניתנים ללא התחייבות זמינות. לשימוש קריטי מומלץ להוסיף שרת פרטי.
-- **טקסט גדול מאוד** (מעל כ־180KB) מגיע כקובץ טקסט ולא ישירות ללוח.
-- **תיקיות** אינן נשלחות, רק קבצים.
+- **תיקיות** נשלחות כקובץ zip, עד 500MB. באייפון תיקיות אינן נשלחות.
+- **הרשימות בחלון אינן נגישות לקורא מסך.**
 
 ## מה נבדק
 
@@ -80,6 +92,8 @@ A real-time shared clipboard for Windows PCs, iPhone and iPad. Works from any ne
 - הדבקת קובץ ב־Explorer עם חלון אישור (אישור ודחייה), והקובץ זהה למקור.
 - קובץ של 6MB, וקובץ של 3MB עם אובדן מכוון של 14% מהחלקים (שידור חוזר).
 - נעיצה וביטול נעיצה דרך סרגל הכלים, מסונכרנים בין המופעים.
+- טקסט של 350KB: מגיע במלואו גם כטקסט וגם כקובץ. תיקייה נשלחת כ־zip עם תתי התיקיות.
+- קובץ ההתקנה: התקנה והסרה שקטות במצב בדיקה (תיקייה ורישום נפרדים).
 - גיבוי מוגן בסיסמה ושחזור בהתקנה נקייה: המופע המשוחזר מתחבר, מקבל את הנעוצים וההעדפות ומסנכרן עם הקבוצה. סיסמה שגויה נדחית.
 - זיהוי ניתוק פתאומי של מכשיר, והפעלה מחדש אחרי קריסה (דרגות 1 ו־2).
 - אפליקציית ה־iOS מתקמפלת ב־GitHub Actions.

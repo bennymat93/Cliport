@@ -125,6 +125,13 @@ namespace Cliport
             var c = new System.Collections.Specialized.StringCollection(); c.AddRange(paths);
             bool ok = Retry(delegate { Clipboard.SetFileDropList(c); }); Mark(); return ok;
         }
+        /// <summary>Text and a file at once: pasting into an editor gives the text, pasting into a folder gives the file.</summary>
+        public bool SetTextAndFile(string text, string path)
+        {
+            var d = new DataObject(); d.SetText(text, TextDataFormat.UnicodeText);
+            var c = new System.Collections.Specialized.StringCollection(); c.Add(path); d.SetFileDropList(c);
+            bool ok = Retry(delegate { Clipboard.SetDataObject(d, true, 5, 40); }); Mark(); return ok;
+        }
         /// <summary>Puts a promise of files on the clipboard. Data is produced in WM_RENDERFORMAT, i.e. at paste time.</summary>
         public bool OfferDelayedFiles()
         {

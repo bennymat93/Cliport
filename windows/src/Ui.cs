@@ -224,6 +224,7 @@ namespace Cliport
             DrawMode = DrawMode.OwnerDrawFixed; BorderStyle = BorderStyle.None; IntegralHeight = false; ItemHeight = Ux.S(52); Dock = DockStyle.Fill;
         }
         public Card Selected { get { var c = SelectedItem as Card; return c != null && !c.Hint ? c : null; } }
+        protected override CreateParams CreateParams { get { var cp = base.CreateParams; cp.Style |= 0x0040; return cp; } }     // LBS_HASSTRINGS: rows are readable by screen readers
         protected override void OnDrawItem(DrawItemEventArgs e)
         {
             if (e.Index < 0 || e.Index >= Items.Count) return;
@@ -735,6 +736,10 @@ namespace Cliport
             cbAuto.CheckedChanged += delegate { Autostart.Enabled = cbAuto.Checked; };
             var cbAccept = new CheckBox(); cbAccept.Text = L.T("אשר הדבקת קבצים אוטומטית, ללא חלון אישור", "Accept pasted files automatically, without the confirmation"); cbAccept.AutoSize = true; cbAccept.Checked = cfg.B("autoAccept", false);
             cbAccept.CheckedChanged += delegate { cfg.Set("autoAccept", cbAccept.Checked); cfg.Save(); };
+            var cbBig = new ComboBox(); cbBig.DropDownStyle = ComboBoxStyle.DropDownList; cbBig.Width = Ux.S(420);
+            cbBig.Items.AddRange(new object[] { L.T("טקסט וגם קובץ - לפי המקום שבו מדביקים", "Text and file - depends on where you paste"), L.T("טקסט בלבד - הדבקה רגילה", "Text only - regular paste"), L.T("קובץ טקסט בלבד", "Text file only") });
+            cbBig.SelectedIndex = cfg.S("bigText") == "text" ? 1 : cfg.S("bigText") == "file" ? 2 : 0;
+            cbBig.SelectedIndexChanged += delegate { cfg.Set("bigText", new[] { "both", "text", "file" }[cbBig.SelectedIndex]); cfg.Save(); };
             tbToken = new TextBox(); tbToken.Width = Ux.S(520); tbToken.RightToLeft = RightToLeft.No; tbToken.UseSystemPasswordChar = true; tbToken.Text = eng.TgToken;
             tbChat = new TextBox(); tbChat.Width = Ux.S(260); tbChat.RightToLeft = RightToLeft.No; tbChat.Text = eng.TgChat;
             lblTg = Ux.Lbl("", "sub");
@@ -742,6 +747,7 @@ namespace Cliport
             fl.Controls.AddRange(new Control[] {
                 Ux.Lbl(L.T("כללי", "General"), "head"),
                 Ux.Lbl(L.T("שפה", "Language")), cbLang, Ux.Lbl(L.T("ערכת נושא", "Theme")), cbTheme, cbAuto, cbAccept,
+                Ux.Lbl(L.T("טקסט גדול מאוד (מעל 180KB) מגיע כ:", "Very large text (over 180 KB) arrives as:")), cbBig,
                 Ux.Lbl(L.T("אחסון Telegram לקבצים גדולים (אופציונלי)", "Telegram storage for large files (optional)"), "head"),
                 Ux.Lbl(L.T("ללא Telegram, קבצים עד 25MB עוברים ישירות. עם Telegram אין מגבלת גודל, והקבצים נשארים מוצפנים מקצה לקצה.",
                     "Without Telegram, files up to 25 MB travel directly. With Telegram there is no size limit, and files stay end-to-end encrypted."), "sub"),
@@ -1036,10 +1042,12 @@ namespace Cliport
             {
                 IDataObject data = Clipboard.GetDataObject(); if (data == null) return;
                 if (data.GetDataPresent("ExcludeClipboardContentFromMonitorProcessing")) return;   // password managers etc.
-                if (Clipboard.ContainsFileDropList())
+                if (Clipboard.ContainsFileDropList() && !Clipboard.ContainsText())
                 {
-                    var l = new List<string>(); foreach (string s in Clipboard.GetFileDropList()) if (File.Exists(s)) l.Add(s);
-                    if (l.Count > 0) { SetOffer(null); eng.LocalFiles(l.ToArray(), false); }
+                    var l = new List<string>(); var dirs = new List<string>();
+                    foreach (string s in Clipboard.GetFileDropList()) { if (File.Exists(s)) l.Add(s); else if (Directory.Exists(s)) dirs.Add(s); }
+                    if (dirs.Count > 0) ZipFolders(l, dirs);
+                    else if (l.Count > 0) { SetOffer(null); eng.LocalFiles(l.ToArray(), false); }
                 }
                 else if (Clipboard.ContainsText()) { string t = Clipboard.GetText(TextDataFormat.UnicodeText); SetOffer(null); eng.LocalText(t); }
                 else if (Clipboard.ContainsImage())
@@ -1059,6 +1067,39 @@ namespace Cliport
                 if (attempt < 6) { var t = new System.Windows.Forms.Timer(); t.Interval = 80; t.Tick += delegate { t.Stop(); t.Dispose(); ReadLocalClipboard(attempt + 1); }; t.Start(); }
             }
             catch (Exception e) { Log.Write("read clipboard: " + e.Message); }
+        }
+        /// <summary>Copied folders travel as zip files (compressed in the background; up to 500 MB each).</summary>
+        void ZipFolders(List<string> files, List<string> dirs)
+        {
+            SetOffer(null);
+            if (stInfo != null) stInfo.Text = L.T("דוחס תיקייה לשליחה...", "Compressing a folder to send...");
+            ThreadPool.QueueUserWorkItem(delegate
+            {
+                var all = new List<string>(files); string skipped = null;
+                foreach (string dir in dirs)
+                {
+                    try
+                    {
+                        long size = 0; foreach (string f in Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories)) { size += new FileInfo(f).Length; if (size > 500L * 1024 * 1024) break; }
+                        string name = Path.GetFileName(dir.TrimEnd(Path.DirectorySeparatorChar)); if (name == "") name = "folder";
+                        if (size > 500L * 1024 * 1024) { skipped = name; continue; }
+                        string outDir = App.PathOf("outgoing"); Directory.CreateDirectory(outDir);
+                        string zip = Path.Combine(outDir, name + ".zip"); if (File.Exists(zip)) File.Delete(zip);
+                        System.IO.Compression.ZipFile.CreateFromDirectory(dir, zip, System.IO.Compression.CompressionLevel.Fastest, true);
+                        all.Add(zip);
+                    }
+                    catch (Exception e) { Log.Write("zip folder: " + e.Message); }
+                }
+                try
+                {
+                    BeginInvoke((Action)delegate
+                    {
+                        if (skipped != null) Toast("Cliport", L.T("התיקייה גדולה מ-500MB ולא נשלחה: ", "The folder is larger than 500 MB and was not sent: ") + skipped);
+                        if (all.Count > 0) { eng.LocalFiles(all.ToArray(), false); if (stInfo != null) stInfo.Text = L.T("התיקייה זמינה להדבקה בכל המכשירים (כקובץ zip)", "The folder is ready to paste on all devices (as a zip file)"); }
+                    });
+                }
+                catch { }
+            });
         }
         /// <summary>Toolbar "Send": push whatever is on the clipboard right now, even if it was already synced.</summary>
         void SendNow()
@@ -1102,6 +1143,28 @@ namespace Cliport
         }
         void OnOffer(Offer o)
         {
+            if (o.Text && o.TotalSize <= 30L * 1024 * 1024)
+            {
+                SetOffer(null);
+                stInfo.Text = L.T("מקבל טקסט גדול מ-", "Receiving a large text from ") + o.FromName + "...";
+                eng.RequestFile(o, 0, null, delegate (string path, string err)
+                {
+                    if (err != null) { Toast("Cliport", L.T("קבלת הטקסט נכשלה: ", "Receiving the text failed: ") + err); return; }
+                    try
+                    {
+                        string text = File.ReadAllText(path, Encoding.UTF8), mode = cfg.S("bigText");
+                        bool ok = mode == "text" ? clip.SetText(text) : mode == "file" ? clip.SetFiles(new[] { path }) : clip.SetTextAndFile(text, path);
+                        if (!ok) { Log.Write("clipboard busy - could not apply large text"); return; }
+                        eng.NoteRemoteText(text);
+                        string how = mode == "text" ? L.T("הדבק כרגיל.", "Paste as usual.") : mode == "file" ? L.T("הדבק בתיקייה כדי לקבל קובץ טקסט.", "Paste into a folder to get a text file.")
+                            : L.T("הדבק בתוכנה כדי לקבל טקסט, או בתיקייה כדי לקבל קובץ.", "Paste into a program for the text, or into a folder for a file.");
+                        Toast(L.T("טקסט גדול התקבל מ-", "Large text received from ") + o.FromName, App.SizeText(o.TotalSize) + " • " + text.Length.ToString("N0") + L.T(" תווים", " characters") + "\n" + how);
+                        stInfo.Text = L.T("טקסט גדול התקבל", "Large text received");
+                    }
+                    catch (Exception e) { Log.Write("large text: " + e.Message); }
+                });
+                return;
+            }
             SetOffer(o);
             if (o.Image && o.TotalSize <= 15L * 1024 * 1024)
             {

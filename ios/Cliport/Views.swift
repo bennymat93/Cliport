@@ -300,6 +300,15 @@ struct SettingsView: View {
                     Toggle(L.t("השאר מחובר ברקע", "Stay connected in the background"), isOn: Binding(get: { eng.keepAlive }, set: { eng.keepAlive = $0 }))
                     Toggle(L.t("השהה סנכרון", "Pause sync"), isOn: $eng.paused)
                 }
+                Section(header: Text(L.t("טקסט גדול מאוד", "Very large text")),
+                        footer: Text(L.t("טקסט מעל 180KB עובר כקובץ. כאן בוחרים איך הוא מגיע למכשיר הזה: כטקסט בלוח וגם כקובץ באפליקציית קבצים, כטקסט בלבד, או כקובץ בלבד.",
+                                         "Text over 180 KB travels as a file. Choose how it arrives on this device: as text on the clipboard plus a file in the Files app, text only, or file only."))) {
+                    Picker(L.t("מגיע כ", "Arrives as"), selection: Binding(get: { eng.bigText }, set: { eng.bigText = $0 })) {
+                        Text(L.t("טקסט וקובץ", "Text and file")).tag("both")
+                        Text(L.t("טקסט בלבד", "Text only")).tag("text")
+                        Text(L.t("קובץ בלבד", "File only")).tag("file")
+                    }
+                }
                 Section(header: Text(L.t("שליחה אוטומטית מהמכשיר", "Automatic sending from this device")),
                         footer: Text(L.t("iOS אינו מאפשר לאף אפליקציה לקרוא את הלוח ברקע. כדי שהעתקה במכשיר תישלח לבד:\n1. הגדרות, Cliport, \"הדבקה מיישומים אחרים\": אפשר.\n2. אפליקציית \"קיצורים\", אוטומציה חדשה, \"יישום\", בחר יישומים, \"נסגר\", \"הפעל מיד\".\n3. הוסף פעולה \"קבל לוח\" ואחריה \"שלח טקסט לכל המכשירים\" של Cliport.\nמעכשיו כל יציאה מיישום שולחת את הלוח. בנוסף, פתיחת Cliport שולחת את הלוח מיד.",
                                          "iOS does not let any app read the clipboard in the background. To send what you copy automatically:\n1. Settings, Cliport, \"Paste from Other Apps\": Allow.\n2. Shortcuts app, new Automation, \"App\", choose apps, \"Is Closed\", \"Run Immediately\".\n3. Add the action \"Get Clipboard\" followed by Cliport's \"Send text to all devices\".\nFrom now on, leaving an app sends the clipboard. Opening Cliport also sends it right away."))) { EmptyView() }

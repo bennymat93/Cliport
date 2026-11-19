@@ -13,7 +13,7 @@ namespace Cliport
     sealed class FileEntry { public string Name, Mime, Path; public long Size; }
     sealed class Offer
     {
-        public string Fid, From, FromName; public bool Image; public long Ts;
+        public string Fid, From, FromName; public bool Image, Text; public long Ts;      // Text: a very large text clip travelling as a .txt file
         public List<FileEntry> Files = new List<FileEntry>();
         public long TotalSize { get { long n = 0; foreach (var f in Files) n += f.Size; return n; } }
     }
@@ -30,6 +30,7 @@ namespace Cliport
         public const long MaxRelayFile = 25L * 1024 * 1024; // without Telegram storage
         const int Chunk = 48000;
         const int TgPart = 18 * 1024 * 1024;
+        const long TgFrom = 4L * 1024 * 1024;               // files above this go through Telegram storage when it is configured
 
         public readonly Config Cfg; public KeyRing Keys; public RelayHub Hub;
         readonly Action<Action> post;
@@ -126,6 +127,7 @@ namespace Cliport
             Hub.Heal();
             long now = App.Now();
             if (now - lastDevPub > 60000) PublishDev();
+            AutoBackupIfDue(now);
             foreach (var k in new List<string>(rxs.Keys))
             {
                 var rx = rxs[k];
@@ -239,8 +241,8 @@ namespace Cliport
             if (Encoding.UTF8.GetByteCount(text) > MaxInlineText)
             {
                 string dir = App.PathOf("outgoing"); Directory.CreateDirectory(dir);
-                string p = Path.Combine(dir, "clipboard-text.txt"); File.WriteAllText(p, text, Encoding.UTF8);
-                LocalFiles(new[] { p }, false); lastHash = h; return;
+                string p = Path.Combine(dir, "Cliport-text-" + DateTime.Now.ToString("yyyyMMdd-HHmmss") + ".txt"); File.WriteAllText(p, text, new UTF8Encoding(false));
+                LocalFiles(new[] { p }, false, true); lastHash = h; return;
             }
             lastHash = h;
             var m = new Dictionary<string, object>(); m["t"] = "clip"; m["kind"] = "text"; m["text"] = text;
@@ -278,6 +280,8 @@ namespace Cliport
         }
         public void RemoveHistory(string text) { History.Remove(text); SaveHistory(); Fire(HistoryChanged); }
         public void ClearHistory() { History.Clear(); SaveHistory(); Fire(HistoryChanged); }
+        /// <summary>A large text clip that arrived as a file was placed on the clipboard: record it like any other received text.</summary>
+        public void NoteRemoteText(string text) { lastHash = Hash(text); AddHistory(text); }
         /// <summary>--demo: sample content and devices, no network. Used to produce the user-guide screenshots.</summary>
         public Offer LoadDemo()
         {
@@ -437,7 +441,7 @@ namespace Cliport
         }
 
         // ---------- files: announce ----------
-        public void LocalFiles(string[] paths, bool image)
+        public void LocalFiles(string[] paths, bool image, bool text = false)
         {
             if (Paused || Keys == null) return;
             var o = new Offer(); o.Fid = App.RandHex(8); o.From = Cfg.DeviceId; o.Image = image; o.Ts = App.Now();
@@ -457,14 +461,14 @@ namespace Cliport
             outgoing[o.Fid] = o; outQ.Enqueue(o.Fid); if (outQ.Count > 8) outgoing.Remove(outQ.Dequeue());
             var files = new List<object>();
             foreach (var f in o.Files) { var x = new Dictionary<string, object>(); x["name"] = f.Name; x["size"] = f.Size; x["mime"] = f.Mime; files.Add(x); }
-            var m = new Dictionary<string, object>(); m["t"] = "offer"; m["fid"] = o.Fid; m["image"] = image; m["files"] = files;
+            var m = new Dictionary<string, object>(); m["t"] = "offer"; m["fid"] = o.Fid; m["image"] = image; m["text"] = text; m["files"] = files;
             Log.Write("offer out: " + o.Files.Count + " file(s), " + App.SizeText(o.TotalSize));
             PublishClip(m);
         }
         void OnOffer(Dictionary<string, object> d)
         {
             if (Paused || !Fresh(d)) return;
-            var o = new Offer(); o.Fid = Json.S(d, "fid"); o.From = Json.S(d, "from"); o.FromName = NameOf(o.From); o.Image = Json.B(d, "image"); o.Ts = Json.L(d, "ts");
+            var o = new Offer(); o.Fid = Json.S(d, "fid"); o.From = Json.S(d, "from"); o.FromName = NameOf(o.From); o.Image = Json.B(d, "image"); o.Text = Json.B(d, "text"); o.Ts = Json.L(d, "ts");
             foreach (var x in Json.List(d, "files"))
             {
                 var fe = new FileEntry(); fe.Name = SafeName(Json.S(x, "name")); fe.Size = Json.L(x, "size"); fe.Mime = Json.S(x, "mime"); o.Files.Add(fe);
@@ -574,7 +578,7 @@ namespace Cliport
                     res["size"] = size;
                     using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
                     {
-                        if (tg)
+                        if (tg && size > TgFrom)
                         {
                             var parts = new List<object>(); var buf = new byte[TgPart]; int n, k = 0;
                             while ((n = ReadFull(fs, buf)) > 0)
@@ -743,6 +747,20 @@ namespace Cliport
             Log.Write("local backup created: " + name);
         }
         public void DeleteLocal(BackupInfo b) { try { File.Delete(b.Path); } catch { } }
+        /// <summary>One automatic backup a day, the newest five are kept. Costs nothing and makes any mishap recoverable.</summary>
+        void AutoBackupIfDue(long now)
+        {
+            if (Demo || Keys == null || now - Cfg.L("autoBackupTs") < 24L * 3600 * 1000) return;
+            Cfg.Set("autoBackupTs", now); Cfg.Save();
+            try
+            {
+                SaveLocal(AutoName, L.T("נוצר אוטומטית פעם ביום", "Created automatically once a day"), false);
+                int kept = 0;
+                foreach (var b in LocalBackups()) if (b.Name == "אוטומטי - יומי" || b.Name == "Automatic - daily") { if (++kept > 5) DeleteLocal(b); }
+            }
+            catch (Exception e) { Log.Write("auto backup: " + e.Message); }
+        }
+        static string AutoName { get { return L.T("אוטומטי - יומי", "Automatic - daily"); } }
 
         // ---------- local persistence (DPAPI-protected) ----------
         void LoadLocal()

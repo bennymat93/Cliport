@@ -6,7 +6,12 @@ on:
   push:
     paths:
       - "ios/**"
+      - "dist/**"
+      - "docs/*.pdf"
       - ".github/workflows/build-ipa.yml"
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -50,3 +55,18 @@ jobs:
         with:
           name: Cliport-v1.0-unsigned-ipa
           path: ios/Cliport-v1.0-unsigned.ipa
+
+      # Downloads page: https://github.com/<owner>/<repo>/releases/latest
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp dist/Cliport-Setup.exe Cliport-v1.0-Setup.exe
+          cp dist/Cliport.exe Cliport-v1.0-portable.exe
+          cp ios/Cliport-v1.0-unsigned.ipa Cliport-v1.0-unsigned.ipa
+          FILES="Cliport-v1.0-Setup.exe Cliport-v1.0-portable.exe Cliport-v1.0-unsigned.ipa docs/Cliport-User-Guide-he.pdf docs/Cliport-User-Guide-en.pdf"
+          if gh release view v1.0 >/dev/null 2>&1; then
+            gh release upload v1.0 $FILES --clobber
+          else
+            gh release create v1.0 $FILES --title "Cliport v1.0" --notes "Windows: Cliport-v1.0-Setup.exe (installer) or Cliport-v1.0-portable.exe (no installation). iPhone / iPad: Cliport-v1.0-unsigned.ipa (unsigned, for sideloading). User guides: Hebrew and English PDF."
+          fi

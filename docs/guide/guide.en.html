@@ -50,7 +50,7 @@
 </ul>
 
 <h2 id="install">2. Installing and pairing on a PC</h2>
-<p>There is nothing to install. Run <span class="k">Cliport.exe</span> and it stays active in the system tray (next to the clock).</p>
+<p>Download one of two files from the project's downloads page: <span class="k">Cliport-v1.0-Setup.exe</span> installs the program for the current user (no administrator rights) and adds shortcuts, and <span class="k">Cliport-v1.0-portable.exe</span> runs without installation. Either way the program stays active in the system tray (next to the clock).</p>
 <div class="fig"><img src="img/en/pair.png" alt=""><div class="cap">The pairing window shown on first run</div></div>
 <ol class="legend">
   <li><b>Create a new group</b> - on the first device. A secret 26-character pairing code is created.</li>
@@ -83,6 +83,7 @@
   <li>The <b>Send</b> button re-sends whatever is on the clipboard right now.</li>
   <li>The <b>Pause</b> button stops sync temporarily, for example before copying something sensitive.</li>
   <li>Content that password managers mark as private is not sent.</li>
+  <li><b>Very large text</b> (over 180 KB) arrives both as text and as a file: pasting into a program gives the text, pasting into a folder gives a text file. In Settings you can choose text only or file only.</li>
 </ul>
 
 <h2 id="pins">5. Pins</h2>
@@ -103,7 +104,8 @@
 <div class="fig small"><img src="img/en/confirm.png" alt=""><div class="cap">The file paste confirmation</div></div>
 <ul>
   <li>You can also click <b>Download now</b> in the main window and then paste in any program.</li>
-  <li>Files up to 25 MB travel directly. For larger files, set up Telegram storage (see Settings).</li>
+  <li>Files up to 25 MB travel directly. For larger files, set up Telegram storage (see Settings). Once set up, files over 4 MB go through it.</li>
+  <li>A copied <b>folder</b> is sent as a zip file (up to 500 MB).</li>
   <li>On a weak network, lost pieces are re-sent automatically and the pace adapts.</li>
   <li>The device the file was copied on must be online when you paste.</li>
 </ul>
@@ -133,7 +135,7 @@
 <div class="fig"><img src="img/en/settings.png" alt=""><div class="cap">The Settings page</div></div>
 <ol class="legend">
   <li><b>Language and theme</b> - Hebrew or English; light, dark, or "Device" (follows the Windows setting).</li>
-  <li><b>Start-up and approval</b> - start with Windows, and automatic approval of pasted files.</li>
+  <li><b>Start-up, approval and large text</b> - start with Windows, automatic approval of pasted files, and how very large text arrives.</li>
   <li><b>Telegram storage</b> - optional, for files over 25 MB. Set it up once and it is shared with all devices.</li>
 </ol>
 <div class="fig"><img src="img/en/dark.png" alt=""><div class="cap">The dark theme</div></div>
@@ -151,6 +153,7 @@
   <li><b>Download a file:</b> a file with the extension <span class="k">.clipbak</span> is saved. It contains your group's encryption key, so protecting it with a password is recommended.</li>
   <li><b>Restoring on a new installation:</b> in the pairing window click "Restore from a backup..." and choose the file. The device joins the group and starts syncing at once.</li>
   <li><b>Before every restore</b> the current state is saved automatically as a backup, so you can go back.</li>
+  <li>An <b>automatic backup</b> is made once a day, and the newest five are kept.</li>
   <li>The same backup file works on a PC, an iPhone and an iPad.</li>
   <li>Shortcuts: <span class="k">Ctrl+B</span> creates a backup, <span class="k">Ctrl+O</span> imports a file.</li>
 </ul>
