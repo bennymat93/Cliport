@@ -15,6 +15,16 @@ struct Offer: Identifiable {
     var id: String { fid }
     var total: Int64 { files.reduce(0) { $0 + $1.size } }
 }
+struct BackupInfo: Identifiable {
+    let url: URL
+    let name: String, desc: String, device: String
+    let created: Int64
+    let pinCount: Int, deviceCount: Int
+    let hasHistory: Bool
+    let data: Data
+    var id: String { url.lastPathComponent }
+}
+
 struct DeviceInfo: Identifiable {
     var id: String
     var name = ""; var plat = ""; var ver = ""; var online = false; var ts: Int64 = 0
@@ -41,6 +51,7 @@ final class Engine: ObservableObject {
     @Published var progress: Int = -1            // -1 = no transfer
     @Published var banner = ""
     @Published var paused = false
+    @Published var backups: [BackupInfo] = []
     /// "he" / "en" / "" (follow the device language)
     @Published var lang: String = UserDefaults.standard.string(forKey: "lang") ?? "" { didSet { UserDefaults.standard.set(lang, forKey: "lang") } }
     /// "light" / "dark" / "system" (follow the device)
@@ -717,6 +728,113 @@ final class Engine: ObservableObject {
         var r = base
         for (k, v) in extra { r[k] = v }
         send("ev", r, retain: false)
+    }
+
+    // ---------- backup and restore ----------
+    private var backupDir: URL {
+        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("backups", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+    /// Everything needed to bring a fresh installation back to full function: pairing, shared settings, pins, devices, preferences.
+    func backupPayload(withHistory: Bool) -> [String: Any] {
+        var p: [String: Any] = [
+            "code": keys?.code ?? (ud.string(forKey: "code") ?? ""),
+            "tgToken": tgToken, "tgChat": tgChat, "relays": relays,
+            "pins": pinStore.map { ["id": $0.id, "text": $0.text, "ts": $0.ts, "del": $0.del] as [String: Any] },
+            "devices": devStore.values.map { ["id": $0.id, "name": $0.name, "plat": $0.plat, "ver": $0.ver, "ts": $0.ts,
+                                             "rdpOn": $0.rdpOn, "rdpUser": $0.rdpUser, "rdpPort": $0.rdpPort, "addrs": $0.addrs] as [String: Any] },
+            "prefs": ["lang": lang, "theme": theme, "keepAlive": keepAlive] as [String: Any]
+        ]
+        if withHistory { p["history"] = history }
+        return p
+    }
+    /// Applies a backup payload and reconnects. Nothing else is needed afterwards.
+    @discardableResult
+    func restore(_ p: [String: Any]) -> Bool {
+        guard let k = KeyRing(code: J.s(p, "code")) else { return false }
+        stopLinks()
+        ud.set(k.code, forKey: "code")
+        ud.set(J.s(p, "tgToken"), forKey: "tgToken"); ud.set(J.s(p, "tgChat"), forKey: "tgChat"); ud.set(J.s(p, "relays"), forKey: "relays")
+        ud.set(Double(AppInfo.now()), forKey: "cfgTs")            // the restored shared settings win and spread to the other devices
+        // pins: live items get a fresh timestamp so they come back on every device, in their original order
+        let now = AppInfo.now()
+        var n: Int64 = 0
+        var restored: [PinItem] = []
+        for o in J.list(p, "pins").sorted(by: { J.l($0, "ts") > J.l($1, "ts") }) {
+            let del = J.b(o, "del"), id = J.s(o, "id")
+            if id.isEmpty { continue }
+            restored.append(PinItem(id: id, text: J.s(o, "text"), ts: del ? J.l(o, "ts") : now - n, del: del))
+            if !del { n += 1 }
+        }
+        pinStore = restored
+        pinsChanged()
+        if p["history"] != nil { history = J.strs(p, "history"); ud.set(history, forKey: "history") }
+        devStore = [:]
+        for o in J.list(p, "devices") {
+            let id = J.s(o, "id")
+            if id.isEmpty || id == deviceId { continue }
+            var d = DeviceInfo(id: id)
+            d.name = J.s(o, "name"); d.plat = J.s(o, "plat"); d.ver = J.s(o, "ver"); d.ts = J.l(o, "ts"); d.online = false
+            d.rdpOn = J.b(o, "rdpOn"); d.rdpUser = J.s(o, "rdpUser")
+            let port = Int(J.l(o, "rdpPort")); d.rdpPort = port == 0 ? 3389 : port
+            d.addrs = J.strs(o, "addrs")
+            devStore[id] = d
+        }
+        devices = devStore.values.sorted { $0.name < $1.name }
+        if let prefs = J.d(p, "prefs") {
+            if !J.s(prefs, "theme").isEmpty { theme = J.s(prefs, "theme") }
+            if prefs["keepAlive"] != nil { ud.set(J.b(prefs, "keepAlive"), forKey: "keepAlive") }
+            if !J.s(prefs, "lang").isEmpty { lang = J.s(prefs, "lang") }
+        }
+        Log.write("backup restored: \(pinStore.count) pin record(s), \(devStore.count) known device(s)")
+        start()
+        return paired
+    }
+    /// Backups kept inside the app. Newest first.
+    func reloadBackups() {
+        var list: [BackupInfo] = []
+        let files = (try? FileManager.default.contentsOfDirectory(at: backupDir, includingPropertiesForKeys: nil)) ?? []
+        for f in files where f.pathExtension == BackupFile.ext {
+            guard let data = try? Data(contentsOf: f), let h = BackupFile.header(data) else { continue }
+            let p = BackupFile.payload(h, password: "")
+            list.append(BackupInfo(url: f, name: J.s(h, "name"), desc: J.s(h, "description"), device: J.s(h, "device"), created: J.l(h, "created"),
+                                   pinCount: J.list(p, "pins").filter { !J.b($0, "del") }.count, deviceCount: J.list(p, "devices").count,
+                                   hasHistory: p?["history"] != nil, data: data))
+        }
+        backups = list.sorted { $0.created > $1.created }
+    }
+    func storeLocal(_ data: Data) {
+        let f = backupDir.appendingPathComponent("\(AppInfo.now())-\(AppInfo.randHex(3)).\(BackupFile.ext)")
+        try? data.write(to: f, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+        reloadBackups()
+    }
+    func saveLocal(name: String, desc: String, withHistory: Bool) {
+        storeLocal(BackupFile.create(name: name, desc: desc, device: deviceName, created: AppInfo.now(), payload: backupPayload(withHistory: withHistory), password: ""))
+        Log.write("local backup created")
+    }
+    func deleteLocal(_ b: BackupInfo) { try? FileManager.default.removeItem(at: b.url); reloadBackups() }
+    /// Writes a copy that can be shared or saved to Files; with a password the content is encrypted.
+    func exportFile(_ b: BackupInfo, password: String) -> URL? {
+        var data = b.data
+        if !password.isEmpty {
+            guard let h = BackupFile.header(b.data), let p = BackupFile.payload(h, password: "") else { return nil }
+            data = BackupFile.create(name: b.name, desc: b.desc, device: b.device, created: b.created, payload: p, password: password)
+        }
+        let dir = AppInfo.caches.appendingPathComponent("export", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let safe = b.name.replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: ":", with: "_")
+        let url = dir.appendingPathComponent("Cliport-\(safe.isEmpty ? "backup" : safe).\(BackupFile.ext)")
+        try? FileManager.default.removeItem(at: url)
+        guard (try? data.write(to: url)) != nil else { return nil }
+        return url
+    }
+    /// Keeps the current state as an automatic backup, then restores the given payload.
+    func restoreWithSafetyCopy(_ p: [String: Any], name: String) -> Bool {
+        if paired {
+            saveLocal(name: L.t("אוטומטי - לפני שחזור", "Automatic - before restore"), desc: L.t("נוצר אוטומטית לפני שחזור של: ", "Created automatically before restoring: ") + name, withHistory: true)
+        }
+        return restore(p)
     }
 
     // ---------- persistence ----------

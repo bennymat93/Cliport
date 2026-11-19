@@ -91,11 +91,12 @@ function Take($lang, $name, $page, $theme, $open, $marks, $designW) {
 }
 
 # Call-out rectangles: client pixels of the Hebrew (right-to-left) layout at 100% scale; mirrored automatically for English.
-$main     = '724,3,228,20;496,27,452,46;11,29,140,40;759,85,196,186;17,151,718,28;17,183,718,64;27,249,702,100;27,351,702,248;1,639,958,21'
+$main     = '724,3,228,20;496,27,452,46;11,29,140,40;759,85,196,232;17,151,718,28;17,183,718,64;27,249,702,100;27,351,702,248;1,639,958,21'
 $devices  = '27,153,702,262;327,579,406,48'
 $rdp      = '267,149,468,48;27,217,702,108;195,579,538,48'
 $settings = '465,197,270,110;345,309,390,58;123,373,612,250'
-$pair     = '18,86,504,42;18,146,504,112'
+$pair     = '18,86,504,42;18,146,504,112;18,268,504,60'
+$backup   = '17,151,718,130;27,286,702,122;213,579,522,48'
 
 foreach ($lang in 'he', 'en') {
     New-Item -ItemType Directory -Force (Join-Path $docs "guide\img\$lang") | Out-Null
@@ -104,6 +105,7 @@ foreach ($lang in 'he', 'en') {
     Take $lang 'devices'  1 'light' $null     $devices  960
     Take $lang 'rdp'      2 'light' $null     $rdp      960
     Take $lang 'settings' 3 'light' $null     $settings 960
+    Take $lang 'backup'   4 'light' $null     $backup   960
     Take $lang 'dark'     0 'dark'  $null     $null     960
     Take $lang 'pair'     0 'light' 'pair'    $pair     540
     Take $lang 'code'     0 'light' 'code'    $null     580

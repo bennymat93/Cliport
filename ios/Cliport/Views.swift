@@ -2,6 +2,7 @@
 import SwiftUI
 import UIKit
 import WebKit
+import UniformTypeIdentifiers
 
 struct RootView: View {
     @EnvironmentObject var eng: Engine
@@ -40,9 +41,19 @@ struct PairView: View {
                                          "If this is the first device, create a new group and enter the code it shows on your other devices."))) {
                     Button(L.t("צור קבוצה חדשה", "Create a new group")) { eng.createGroup() }
                 }
+                Section(header: Text(L.t("שחזור מגיבוי", "Restore from a backup")),
+                        footer: Text(L.t("שחזור מחזיר את הצימוד, ההגדרות והנעוצים בבת אחת, בלי פעולה נוספת.", "Restoring brings back pairing, settings and pins at once, with no further steps."))) {
+                    BackupImportButton(title: L.t("שחזר מקובץ גיבוי", "Restore from a backup file"), restoreNow: true)
+                    ForEach(eng.backups) { b in
+                        Button { if let h = BackupFile.header(b.data), let p = BackupFile.payload(h, password: "") { _ = eng.restore(p) } } label: {
+                            Label(L.t("שחזר מקומי: ", "Restore local: ") + b.name, systemImage: "clock.arrow.circlepath")
+                        }
+                    }
+                }
                 AppearanceSection()
             }
             .navigationTitle("Cliport")
+            .onAppear { eng.reloadBackups() }
             .alert(L.t("הקוד אינו תקין", "The code is not valid"), isPresented: $bad) { Button(L.t("אישור", "OK"), role: .cancel) { } }
         }
     }
@@ -274,6 +285,9 @@ struct SettingsView: View {
         NavigationStack {
             Form {
                 AppearanceSection()
+                Section {
+                    NavigationLink { BackupView() } label: { Label(L.t("גיבוי ושחזור", "Backup & restore"), systemImage: "externaldrive") }
+                }
                 Section(header: Text(L.t("צימוד", "Pairing")), footer: Text(L.t("הזן קוד זה במכשירים נוספים. אל תשתף אותו - זהו מפתח ההצפנה.", "Enter this code on your other devices. Do not share it - it is the encryption key."))) {
                     Text(Base32.pretty(eng.keys?.code ?? "")).font(.system(.footnote, design: .monospaced)).textSelection(.enabled)
                         .environment(\.layoutDirection, .leftToRight)
@@ -346,6 +360,142 @@ struct SettingsView: View {
                 if let id = found ?? nil, !id.isEmpty { chat = id; eng.setTelegram(token: t, chat: id); msg = L.t("אחסון Telegram נשמר", "Telegram storage was saved") }
                 else { msg = L.t("לא נמצאה הודעה לבוט. שלח לו הודעה ונסה שוב.", "No message to the bot was found. Send it a message and try again.") }
             }
+        }
+    }
+}
+
+// MARK: - Backup and restore
+
+/// Picks a .clipbak file, asks for its password when needed, keeps a copy inside the app and (optionally) restores it at once.
+struct BackupImportButton: View {
+    @EnvironmentObject var eng: Engine
+    let title: String
+    let restoreNow: Bool
+    @State private var picking = false
+    @State private var askPassword = false
+    @State private var password = ""
+    @State private var header: [String: Any]?
+    @State private var message = ""
+    @State private var showMessage = false
+    @State private var confirmRestore = false
+    @State private var pending: [String: Any]?
+
+    var body: some View {
+        Button { picking = true } label: { Label(title, systemImage: "square.and.arrow.down") }
+            .fileImporter(isPresented: $picking, allowedContentTypes: [.data, .json, .item]) { result in
+                guard case .success(let url) = result else { return }
+                let scoped = url.startAccessingSecurityScopedResource()
+                defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+                guard let data = try? Data(contentsOf: url), let h = BackupFile.header(data) else {
+                    message = L.t("זה אינו קובץ גיבוי של Cliport.", "This is not a Cliport backup file."); showMessage = true; return
+                }
+                header = h
+                if J.b(h, "protected") { password = ""; askPassword = true } else { finish(BackupFile.payload(h, password: "")) }
+            }
+            .alert(L.t("סיסמת הגיבוי", "Backup password"), isPresented: $askPassword) {
+                SecureField(L.t("סיסמה", "Password"), text: $password)
+                Button(L.t("אישור", "OK")) {
+                    if let h = header {
+                        if let p = BackupFile.payload(h, password: password) { finish(p) }
+                        else { message = L.t("הסיסמה שגויה.", "Wrong password."); showMessage = true }
+                    }
+                }
+                Button(L.t("ביטול", "Cancel"), role: .cancel) { }
+            } message: { Text(L.t("הגיבוי \"", "The backup \"") + J.s(header, "name") + L.t("\" מוגן בסיסמה.", "\" is protected with a password.")) }
+            .alert(message, isPresented: $showMessage) { Button(L.t("אישור", "OK"), role: .cancel) { } }
+            .confirmationDialog(L.t("הגיבוי יובא ונשמר באפליקציה. לשחזר אותו עכשיו?", "The backup was imported and saved in the app. Restore it now?"), isPresented: $confirmRestore, titleVisibility: .visible) {
+                Button(L.t("שחזר", "Restore")) { if let p = pending { _ = eng.restoreWithSafetyCopy(p, name: J.s(header, "name")) } }
+                Button(L.t("לא עכשיו", "Not now"), role: .cancel) { }
+            }
+    }
+    private func finish(_ payload: [String: Any]?) {
+        guard let p = payload, let h = header else { message = L.t("קובץ הגיבוי פגום.", "The backup file is damaged."); showMessage = true; return }
+        eng.storeLocal(BackupFile.create(name: J.s(h, "name"), desc: J.s(h, "description"), device: J.s(h, "device"), created: J.l(h, "created"), payload: p, password: ""))
+        if restoreNow { _ = eng.restore(p) } else { pending = p; confirmRestore = true }
+    }
+}
+
+struct BackupView: View {
+    @EnvironmentObject var eng: Engine
+    @State private var name = ""
+    @State private var desc = ""
+    @State private var withHistory = false
+    @State private var exportPassword = ""
+    @State private var exportURL: URL?
+    @State private var showExport = false
+    @State private var toRestore: BackupInfo?
+    @State private var note = ""
+
+    private func dateText(_ ms: Int64) -> String {
+        let f = DateFormatter(); f.dateStyle = .medium; f.timeStyle = .short
+        return f.string(from: Date(timeIntervalSince1970: Double(ms) / 1000))
+    }
+    var body: some View {
+        Form {
+            Section(header: Text(L.t("גיבוי חדש", "New backup")),
+                    footer: Text(L.t("גיבוי כולל את הצימוד, ההגדרות המשותפות, הנעוצים, רשימת המכשירים וההעדפות. שחזור מחזיר הכול בלי פעולה נוספת.",
+                                     "A backup holds the pairing, shared settings, pins, device list and preferences. Restoring brings everything back with no further steps."))) {
+                TextField(L.t("שם הגיבוי", "Backup name"), text: $name)
+                TextField(L.t("תיאור (אופציונלי)", "Description (optional)"), text: $desc)
+                Toggle(L.t("כלול גם את היסטוריית הלוח", "Include the clipboard history too"), isOn: $withHistory)
+                Button(L.t("צור גיבוי", "Create backup")) {
+                    let f = DateFormatter(); f.dateStyle = .short; f.timeStyle = .short
+                    let n = name.trimmingCharacters(in: .whitespaces)
+                    eng.saveLocal(name: n.isEmpty ? L.t("גיבוי ", "Backup ") + f.string(from: Date()) : n, desc: desc.trimmingCharacters(in: .whitespaces), withHistory: withHistory)
+                    name = ""; desc = ""; note = L.t("הגיבוי נשמר", "Backup saved")
+                }
+                if !note.isEmpty { Text(note).font(.footnote).foregroundColor(.secondary) }
+            }
+            Section(header: Text(L.t("ייבוא", "Import"))) {
+                BackupImportButton(title: L.t("ייבא מקובץ גיבוי", "Import a backup file"), restoreNow: false)
+            }
+            Section(header: Text(L.t("הורדת קובץ", "Download a file")),
+                    footer: Text(L.t("הקובץ מכיל את מפתח ההצפנה של הקבוצה. מומלץ להגן עליו בסיסמה. השאר ריק לקובץ ללא סיסמה.", "The file contains your group's encryption key. Protecting it with a password is recommended. Leave empty for no password."))) {
+                SecureField(L.t("סיסמה לקובץ המיוצא (אופציונלי)", "Password for the exported file (optional)"), text: $exportPassword)
+            }
+            Section(header: Text(L.t("גיבויים מקומיים", "Local backups"))) {
+                if eng.backups.isEmpty { Text(L.t("אין גיבויים מקומיים עדיין", "No local backups yet")).foregroundColor(.secondary) }
+                ForEach(eng.backups) { b in
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(b.name).font(.headline)
+                        if !b.desc.isEmpty { Text(b.desc).font(.subheadline) }
+                        Text("\(dateText(b.created))  •  \(b.device)  •  \(b.pinCount) \(L.t("נעוצים", "pins"))  •  \(b.deviceCount + 1) \(L.t("מכשירים", "devices"))\(b.hasHistory ? L.t("  •  היסטוריה", "  •  history") : "")")
+                            .font(.footnote).foregroundColor(.secondary)
+                        HStack {
+                            Button(L.t("שחזר", "Restore")) { toRestore = b }.buttonStyle(.borderedProminent)
+                            Button(L.t("הורד קובץ", "Download file")) {
+                                exportURL = eng.exportFile(b, password: exportPassword); showExport = exportURL != nil
+                            }.buttonStyle(.bordered)
+                        }
+                        .padding(.top, 4)
+                    }
+                    .padding(.vertical, 4)
+                    .swipeActions { Button(L.t("מחק", "Delete"), role: .destructive) { eng.deleteLocal(b) } }
+                }
+            }
+        }
+        .navigationTitle(L.t("גיבוי ושחזור", "Backup & restore"))
+        .navigationBarTitleDisplayMode(.inline)
+        .onAppear { eng.reloadBackups() }
+        .confirmationDialog(L.t("לשחזר את הגיבוי? המצב הנוכחי יישמר קודם כגיבוי אוטומטי.", "Restore this backup? The current state is saved first as an automatic backup."),
+                            isPresented: Binding(get: { toRestore != nil }, set: { if !$0 { toRestore = nil } }), titleVisibility: .visible) {
+            Button(L.t("שחזר", "Restore")) {
+                if let b = toRestore, let h = BackupFile.header(b.data), let p = BackupFile.payload(h, password: "") {
+                    note = eng.restoreWithSafetyCopy(p, name: b.name) ? L.t("השחזור הושלם", "Restore completed") : L.t("השחזור נכשל", "Restore failed")
+                }
+                toRestore = nil
+            }
+            Button(L.t("ביטול", "Cancel"), role: .cancel) { toRestore = nil }
+        }
+        .sheet(isPresented: $showExport) {
+            VStack(spacing: 18) {
+                Text(L.t("קובץ הגיבוי מוכן", "The backup file is ready")).font(.headline)
+                if let u = exportURL { ShareLink(item: u) { Label(L.t("שמור או שתף את הקובץ", "Save or share the file"), systemImage: "square.and.arrow.up") }.buttonStyle(.borderedProminent) }
+                Button(L.t("סגור", "Close")) { showExport = false }
+            }
+            .padding()
+            .environment(\.layoutDirection, L.en ? .leftToRight : .rightToLeft)
+            .presentationDetents([.medium])
         }
     }
 }

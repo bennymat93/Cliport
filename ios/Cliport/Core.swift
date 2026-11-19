@@ -173,6 +173,48 @@ struct KeyRing {
     }
 }
 
+/// Backup file (.clipbak), identical on Windows and iOS. JSON:
+///   { cliportBackup:1, name, description, created(ms), device, app, protected, salt(b64), data(b64) }
+/// data = the payload JSON; with a password it is sealed with a key derived by PBKDF2-HMAC-SHA256 (150,000 rounds).
+enum BackupFile {
+    static let ext = "clipbak"
+    private static func derive(_ password: String, _ salt: Data) -> Data {
+        var out = [UInt8](repeating: 0, count: 16)
+        let pw = Array(password.utf8).map { Int8(bitPattern: $0) }
+        let s = [UInt8](salt)
+        _ = CCKeyDerivationPBKDF(CCPBKDFAlgorithm(kCCPBKDF2), pw, pw.count, s, s.count, CCPseudoRandomAlgorithm(kCCPRFHmacAlgSHA256), 150_000, &out, 16)
+        return Data(out)
+    }
+    static func create(name: String, desc: String, device: String, created: Int64, payload: [String: Any], password: String) -> Data {
+        var h: [String: Any] = ["cliportBackup": 1, "name": name, "description": desc, "created": created, "device": device, "app": AppInfo.version]
+        let plain = J.encode(payload)
+        if !password.isEmpty {
+            var salt = [UInt8](repeating: 0, count: 16)
+            _ = SecRandomCopyBytes(kSecRandomDefault, 16, &salt)
+            h["protected"] = true
+            h["salt"] = Data(salt).base64EncodedString()
+            h["data"] = KeyRing(secret: derive(password, Data(salt))).seal(plain).base64EncodedString()
+        } else {
+            h["protected"] = false; h["salt"] = ""; h["data"] = plain.base64EncodedString()
+        }
+        return J.encode(h)
+    }
+    static func header(_ data: Data) -> [String: Any]? {
+        guard let d = J.decode(data), J.l(d, "cliportBackup") == 1, !J.s(d, "data").isEmpty else { return nil }
+        return d
+    }
+    /// nil when the password is wrong or the file is damaged.
+    static func payload(_ header: [String: Any], password: String) -> [String: Any]? {
+        guard var data = Data(base64Encoded: J.s(header, "data")) else { return nil }
+        if J.b(header, "protected") {
+            guard let salt = Data(base64Encoded: J.s(header, "salt")), let opened = KeyRing(secret: derive(password, salt)).open(data) else { return nil }
+            data = opened
+        }
+        guard let p = J.decode(data), KeyRing(code: J.s(p, "code")) != nil else { return nil }
+        return p
+    }
+}
+
 enum Mime {
     static func of(_ name: String) -> String {
         switch (name as NSString).pathExtension.lowercased() {

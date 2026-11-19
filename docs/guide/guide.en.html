@@ -29,6 +29,7 @@
     <li><a href="#devices">Devices</a></li>
     <li><a href="#rdp">Remote Desktop</a></li>
     <li><a href="#settings">Settings, language and theme</a></li>
+    <li><a href="#backup">Backup and restore</a></li>
     <li><a href="#ios">iPhone and iPad</a></li>
     <li><a href="#recovery">Recovering from problems</a></li>
     <li><a href="#keys">Keyboard shortcuts</a></li>
@@ -54,6 +55,7 @@
 <ol class="legend">
   <li><b>Create a new group</b> - on the first device. A secret 26-character pairing code is created.</li>
   <li><b>Join with an existing code</b> - on every other device. Enter the code shown on the first device and click "Join".</li>
+  <li><b>Restore from a backup</b> - if you have a backup file, restoring brings back pairing, settings and pins at once.</li>
 </ol>
 <p>After pairing, the code is shown. Keep it somewhere safe: it is used to add devices, and it is also the encryption key.</p>
 <div class="fig"><img src="img/en/code.png" alt=""><div class="cap">The pairing code. You can show it again at any time from the Tools menu or the toolbar</div></div>
@@ -66,7 +68,7 @@
   <li><b>Menu bar</b> - File, Edit, View, Tools and Help. Every action is here, with its keyboard shortcut.</li>
   <li><b>Toolbar</b> - the common actions: send clipboard, copy, pin, delete, get file, pause, connect to a PC and pairing code.</li>
   <li><b>View and help</b> - theme, language, user guide and About.</li>
-  <li><b>Navigation</b> - switch between the four pages: Clipboard &amp; pins, Devices, Remote Desktop, Settings.</li>
+  <li><b>Navigation</b> - switch between the five pages: Clipboard &amp; pins, Devices, Remote Desktop, Settings, Backup &amp; restore.</li>
   <li><b>Search</b> - filters history and pins as you type.</li>
   <li><b>Pending file</b> - appears when another device copied a file. Shows its name, size and type.</li>
   <li><b>Pins</b> - always shown at the top of the list.</li>
@@ -137,7 +139,24 @@
 <div class="fig"><img src="img/en/dark.png" alt=""><div class="cap">The dark theme</div></div>
 <p>Further down the page you can set a <b>private relay server</b> (MQTT over TLS). It is added to the public relays and improves availability.</p>
 
-<h2 id="ios">10. iPhone and iPad</h2>
+<h2 id="backup">10. Backup and restore</h2>
+<p>A backup keeps the whole configuration: the pairing, Telegram and relay settings, pins, the device list and your preferences. Restoring on a new installation brings the tool back to full function, with nothing else to enter.</p>
+<div class="fig"><img src="img/en/backup.png" alt=""><div class="cap">The Backup &amp; restore page</div></div>
+<ol class="legend">
+  <li><b>New backup</b> - give it a name, add a description if you like, and click "Create backup". You can include the clipboard history too.</li>
+  <li><b>Local backups</b> - kept inside the tool, encrypted under your Windows user account. Each shows its description, date and what it contains.</li>
+  <li><b>Actions</b> - restore the selected backup, download a backup file, import from a file, and delete.</li>
+</ol>
+<ul>
+  <li><b>Download a file:</b> a file with the extension <span class="k">.clipbak</span> is saved. It contains your group's encryption key, so protecting it with a password is recommended.</li>
+  <li><b>Restoring on a new installation:</b> in the pairing window click "Restore from a backup..." and choose the file. The device joins the group and starts syncing at once.</li>
+  <li><b>Before every restore</b> the current state is saved automatically as a backup, so you can go back.</li>
+  <li>The same backup file works on a PC, an iPhone and an iPad.</li>
+  <li>Shortcuts: <span class="k">Ctrl+B</span> creates a backup, <span class="k">Ctrl+O</span> imports a file.</li>
+</ul>
+<div class="note">A restore replaces the shared settings of the whole group with the backup's content, and brings the backup's pins back on every device.</div>
+
+<h2 id="ios">11. iPhone and iPad</h2>
 <h3>Installing and pairing</h3>
 <ol>
   <li>Install <span class="k">Cliport-v1.0-unsigned.ipa</span> with the tool you use for unsigned apps.</li>
@@ -160,8 +179,10 @@
 <p>On the Computers tab, choose a PC and an address. The connection opens in Microsoft's Windows App (free on the App Store).</p>
 <h3>Language and theme</h3>
 <p>On the Settings tab, under Appearance: Hebrew or English; Light, Device or Dark.</p>
+<h3>Backup and restore</h3>
+<p>On the Settings tab, open "Backup &amp; restore". Create a backup with a name and description, download a file (with a password if you like), import a file, or restore a local backup. On a new installation you can restore straight from the pairing screen.</p>
 
-<h2 id="recovery">11. Recovering from problems</h2>
+<h2 id="recovery">12. Recovering from problems</h2>
 <p>Cliport repairs itself in levels. Each level shows a notification.</p>
 <table>
   <tr><th>Level</th><th>What happens</th></tr>
@@ -173,7 +194,7 @@
 </table>
 <p>On iPhone and iPad the system does not allow an app to restart itself, so if the app stops a notification appears, and tapping it resumes sync.</p>
 
-<h2 id="keys">12. Keyboard shortcuts</h2>
+<h2 id="keys">13. Keyboard shortcuts</h2>
 <table>
   <tr><th>Shortcut</th><th>Action</th></tr>
   <tr><td><span class="k">Ctrl+Alt+V</span></td><td>Quick paste from pins (in any program)</td></tr>
@@ -185,26 +206,29 @@
   <tr><td><span class="k">Ctrl+Shift+V</span></td><td>Send the clipboard now</td></tr>
   <tr><td><span class="k">Ctrl+D</span></td><td>Download the pending file</td></tr>
   <tr><td><span class="k">Ctrl+K</span></td><td>Show the pairing code</td></tr>
-  <tr><td><span class="k">Ctrl+1</span> to <span class="k">Ctrl+4</span></td><td>Switch pages</td></tr>
+  <tr><td><span class="k">Ctrl+B</span></td><td>Create a backup</td></tr>
+  <tr><td><span class="k">Ctrl+O</span></td><td>Import a backup file</td></tr>
+  <tr><td><span class="k">Ctrl+1</span> to <span class="k">Ctrl+5</span></td><td>Switch pages</td></tr>
   <tr><td><span class="k">F1</span></td><td>This guide</td></tr>
 </table>
 
-<h2 id="privacy">13. Privacy and security</h2>
+<h2 id="privacy">14. Privacy and security</h2>
 <ul>
   <li>All content is encrypted on the device before it is sent (AES-256) and authenticated (HMAC-SHA256). The relay servers see only ciphertext.</li>
   <li>The pairing code is the encryption key. Anyone who has it can join the group, so do not share it.</li>
   <li>On a PC, the code, history and pins are stored encrypted under your Windows user account.</li>
   <li>If the code leaks: leave the group on every device and create a new group.</li>
+  <li>A backup file contains the code. Keep it somewhere safe and protect it with a password.</li>
 </ul>
 
-<h2 id="faq">14. Troubleshooting</h2>
+<h2 id="faq">15. Troubleshooting</h2>
 <table>
   <tr><th>Symptom</th><th>What to check</th></tr>
   <tr><td>A copy does not reach another device</td><td>Does the status bar say "Connected and syncing" on both devices? Is sync paused? Do both devices use the same pairing code?</td></tr>
   <tr><td>"Reconnecting..." for a long time</td><td>Is there an internet connection? Corporate networks sometimes block port 8883; in that case set up a private relay server.</td></tr>
   <tr><td>Pasting a file does not work</td><td>Is the source device online? Is the file under 25 MB, or is Telegram storage set up?</td></tr>
   <tr><td>Remote Desktop does not connect</td><td>Is Remote Desktop enabled on the target PC? Is Tailscale running on both sides?</td></tr>
-  <tr><td>A copy on the iPhone is not sent</td><td>Open Cliport, or set up the automation described in section 10.</td></tr>
+  <tr><td>A copy on the iPhone is not sent</td><td>Open Cliport, or set up the automation described in section 11.</td></tr>
 </table>
 <p class="foot">The activity log is in the data folder (Tools menu, "Open data folder and log").<br>Project page: github.com/bennymat93/Cliport</p>
 

@@ -157,7 +157,7 @@ namespace Cliport
         // Segoe icon glyphs
         public const int GCopy = 0xE8C8, GPin = 0xE718, GDelete = 0xE74D, GSend = 0xE724, GPause = 0xE769, GPlay = 0xE768, GRemote = 0xE8AF,
             GDevices = 0xE772, GSettings = 0xE713, GHelp = 0xE897, GInfo = 0xE946, GLink = 0xE71B, GDownload = 0xE896, GClip = 0xE77F, GSearch = 0xE721,
-            GPhone = 0xE8EA, GPc = 0xE7F8, GFile = 0xE8A5, GTheme = 0xE793, GGlobe = 0xE774, GFolder = 0xE8B7, GText = 0xE8C1, GClear = 0xE894, GExit = 0xE7E8, GKey = 0xE8D7;
+            GBackup = 0xE74E, GRestore = 0xE777, GImport = 0xE8B5, GExport = 0xEDE1, GPhone = 0xE8EA, GPc = 0xE7F8, GFile = 0xE8A5, GTheme = 0xE793, GGlobe = 0xE774, GFolder = 0xE8B7, GText = 0xE8C1, GClear = 0xE894, GExit = 0xE7E8, GKey = 0xE8D7;
 
         public static void Init()
         {
@@ -269,10 +269,11 @@ namespace Cliport
     // ====================================================================================================
     sealed class PairForm : Form
     {
-        public string Code; TextBox tb;
-        public PairForm()
+        public string Code; TextBox tb; public bool Restored;
+        /// <summary>restore: runs the restore flow; returns true when the tool is paired afterwards.</summary>
+        public PairForm(Func<bool> restore = null)
         {
-            Ux.Setup(this); Text = L.T("Cliport - צימוד מכשירים", "Cliport - Pair devices"); ClientSize = new Size(Ux.S(540), Ux.S(280)); FormBorderStyle = FormBorderStyle.FixedDialog;
+            Ux.Setup(this); Text = L.T("Cliport - צימוד מכשירים", "Cliport - Pair devices"); ClientSize = new Size(Ux.S(540), Ux.S(336)); FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false; MinimizeBox = false; StartPosition = FormStartPosition.CenterScreen; TopMost = true;
             var l = new Label(); l.Text = L.T("כדי לסנכרן, כל המכשירים חולקים קוד צימוד סודי אחד.\nזה המכשיר הראשון? צור קבוצה חדשה. אחרת, הזן את הקוד שמוצג במכשיר קיים.",
                 "To sync, all your devices share one secret pairing code.\nFirst device? Create a new group. Otherwise enter the code shown on an existing device.");
@@ -287,7 +288,10 @@ namespace Cliport
                 Code = B32.Encode(B32.Decode(tb.Text)); DialogResult = DialogResult.OK;
             });
             bJoin.AutoSize = false; bJoin.SetBounds(L.Rtl ? Ux.S(372) : Ux.S(18), Ux.S(220), Ux.S(150), Ux.S(38));
-            Controls.AddRange(new Control[] { l, bNew, l2, tb, bJoin }); AcceptButton = bJoin;
+            var l3 = new Label(); l3.Text = L.T("יש לך גיבוי? שחזור מחזיר את הצימוד, ההגדרות והנעוצים בבת אחת.", "Have a backup? Restoring brings back pairing, settings and pins at once."); l3.Tag = "sub"; l3.Font = Ux.FSmall; l3.SetBounds(Ux.S(18), Ux.S(270), Ux.S(504), Ux.S(20));
+            var bRestore = Ux.Btn(L.T("שחזר מגיבוי...", "Restore from a backup..."), delegate { if (restore != null && restore()) { Restored = true; DialogResult = DialogResult.OK; } });
+            bRestore.AutoSize = false; bRestore.SetBounds(L.Rtl ? Ux.S(322) : Ux.S(18), Ux.S(292), Ux.S(200), Ux.S(34)); bRestore.Enabled = restore != null;
+            Controls.AddRange(new Control[] { l, bNew, l2, tb, bJoin, l3, bRestore }); AcceptButton = bJoin;
             Theme.Apply(this);
         }
     }
@@ -324,6 +328,30 @@ namespace Cliport
         public void Set(string text, int pc) { lbl.Text = text; bar.Value = Math.Max(0, Math.Min(100, pc)); }
         public void Finish() { Finished = true; if (Visible) Close(); }
         protected override void OnShown(EventArgs e) { base.OnShown(e); if (Finished) Close(); }
+    }
+
+    sealed class PasswordForm : Form
+    {
+        TextBox tb, tb2; public string Password { get { return tb.Text; } }
+        /// <summary>confirm: ask twice (when setting a password). An empty password is allowed there and means "no password".</summary>
+        public PasswordForm(string title, string text, bool confirm)
+        {
+            Ux.Setup(this); Text = title; ClientSize = new Size(Ux.S(480), Ux.S(confirm ? 250 : 190)); FormBorderStyle = FormBorderStyle.FixedDialog; MaximizeBox = false; MinimizeBox = false;
+            StartPosition = FormStartPosition.CenterScreen; ShowInTaskbar = false;
+            var l = new Label(); l.Text = text; l.SetBounds(Ux.S(18), Ux.S(14), Ux.S(444), Ux.S(62));
+            tb = new TextBox(); tb.UseSystemPasswordChar = true; tb.RightToLeft = RightToLeft.No; tb.SetBounds(Ux.S(18), Ux.S(84), Ux.S(444), Ux.S(28)); Ux.Cue(tb, L.T("סיסמה", "Password"));
+            tb2 = new TextBox(); tb2.UseSystemPasswordChar = true; tb2.RightToLeft = RightToLeft.No; tb2.SetBounds(Ux.S(18), Ux.S(124), Ux.S(444), Ux.S(28)); tb2.Visible = confirm; Ux.Cue(tb2, L.T("הקלד שוב את הסיסמה", "Type the password again"));
+            int y = confirm ? 188 : 136;
+            var ok = Ux.Btn(L.T("אישור", "OK"), delegate
+            {
+                if (confirm && tb.Text != tb2.Text) { MessageBox.Show(this, L.T("הסיסמאות אינן זהות.", "The passwords do not match."), "Cliport", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
+                DialogResult = DialogResult.OK;
+            }, "primary");
+            ok.AutoSize = false; ok.SetBounds(L.Rtl ? Ux.S(332) : Ux.S(18), Ux.S(y), Ux.S(130), Ux.S(38));
+            var cancel = Ux.Btn(L.T("ביטול", "Cancel"), delegate { DialogResult = DialogResult.Cancel; }); cancel.AutoSize = false; cancel.SetBounds(L.Rtl ? Ux.S(212) : Ux.S(158), Ux.S(y), Ux.S(110), Ux.S(38));
+            Controls.AddRange(new Control[] { l, tb, tb2, ok, cancel }); AcceptButton = ok; CancelButton = cancel;
+            Theme.Apply(this);
+        }
     }
 
     sealed class AboutForm : Form
@@ -416,6 +444,7 @@ namespace Cliport
         MenuStrip menu; ToolStrip tools; StatusStrip status; ToolStripStatusLabel stDot, stText, stInfo;
         Panel side, content, offerBar; Panel[] pages; Button[] nav; CardList lbClips, lbDev, lbRdp; TextBox search, tbToken, tbChat, tbRelay; Label lblOffer, lblRdp, lblTg;
         ToolStripButton tbPause, tbGet; ToolStripMenuItem miPause, miGet;
+        CardList lbBackups; TextBox tbBkName, tbBkDesc; CheckBox cbBkHist;
         int page; string filter = "";
         Offer offer; string[] offerPaths; bool fetching, exiting, pairing; IntPtr prevFg; int tickN; long declinedAt;
 
@@ -428,7 +457,7 @@ namespace Cliport
             eng = new Engine(cfg, delegate (Action a) { ctx.Post(delegate { try { a(); } catch (Exception e) { Log.Write("ui post: " + e); } }, null); });
             eng.RdpInfo = Rdp.Info;
             if (demo) { cfg.Set("name", "MY-PC"); offer = eng.LoadDemo(); Theme.NoHover = true; }
-            page = Math.Max(0, Math.Min(3, Program.StartPage));
+            page = Math.Max(0, Math.Min(4, Program.StartPage));
             clip = new ClipWindow();
             tray = new NotifyIcon(); tray.Icon = Ux.AppIcon ?? SystemIcons.Application; tray.Text = "Cliport"; tray.Visible = !demo;
             tray.DoubleClick += delegate { ShowMain(); };
@@ -467,7 +496,7 @@ namespace Cliport
                     {
                         case "about": ShowAbout(); break;
                         case "code": ShowCode(); break;
-                        case "pair": using (var f = new PairForm()) f.ShowDialog(this); break;
+                        case "pair": using (var f = new PairForm(delegate { return false; })) f.ShowDialog(this); break;
                         case "confirm": Confirm(offer); break;
                         case "pins": popup.ShowAt(eng.LivePins()); break;
                         case "help": ShowHelp(); break;
@@ -479,7 +508,7 @@ namespace Cliport
 
         // ---------------------------------------------------------------- construction
         void Rebuild() { Theme.Resolve(); BuildUi(); RefreshAll(); }
-        void RefreshAll() { RefreshClips(); RefreshDevices(); RefreshStatus(); SetOffer(offer, true); }
+        void RefreshAll() { RefreshClips(); RefreshDevices(); RefreshStatus(); SetOffer(offer, true); RefreshBackups(); }
 
         void BuildUi()
         {
@@ -495,6 +524,9 @@ namespace Cliport
             Item(mFile, L.T("שלח את הלוח עכשיו", "Send clipboard now"), Ux.GSend, Keys.Control | Keys.Shift | Keys.V, delegate { SendNow(); });
             miGet = Item(mFile, L.T("הורד את הקובץ הממתין", "Download the pending file"), Ux.GDownload, Keys.Control | Keys.D, delegate { FetchOfferNow(); });
             Item(mFile, L.T("פתח את תיקיית הקבצים שהתקבלו", "Open the received files folder"), Ux.GFolder, Keys.None, delegate { OpenFolder("incoming"); });
+            mFile.DropDownItems.Add(new ToolStripSeparator());
+            Item(mFile, L.T("צור גיבוי עכשיו", "Create a backup now"), Ux.GBackup, Keys.Control | Keys.B, delegate { ShowPage(4); CreateBackup(); });
+            Item(mFile, L.T("ייבא גיבוי מקובץ...", "Import a backup file..."), Ux.GImport, Keys.Control | Keys.O, delegate { ShowPage(4); ImportBackup(); });
             mFile.DropDownItems.Add(new ToolStripSeparator());
             miPause = Item(mFile, L.T("השהה סנכרון", "Pause sync"), Ux.GPause, Keys.Control | Keys.Shift | Keys.P, delegate { TogglePause(); });
             mFile.DropDownItems.Add(new ToolStripSeparator());
@@ -515,6 +547,7 @@ namespace Cliport
             Item(mView, L.T("מכשירים", "Devices"), Ux.GDevices, Keys.Control | Keys.D2, delegate { ShowPage(1); });
             Item(mView, L.T("שולחן עבודה מרוחק", "Remote Desktop"), Ux.GRemote, Keys.Control | Keys.D3, delegate { ShowPage(2); });
             Item(mView, L.T("הגדרות", "Settings"), Ux.GSettings, Keys.Control | Keys.D4, delegate { ShowPage(3); });
+            Item(mView, L.T("גיבוי ושחזור", "Backup & restore"), Ux.GBackup, Keys.Control | Keys.D5, delegate { ShowPage(4); });
             mView.DropDownItems.Add(new ToolStripSeparator());
             ThemeItems(Item(mView, L.T("ערכת נושא", "Theme"), Ux.GTheme, Keys.None, null).DropDownItems);
             LangItems(Item(mView, L.T("שפה", "Language"), Ux.GGlobe, Keys.None, null).DropDownItems);
@@ -561,10 +594,10 @@ namespace Cliport
 
             // ---- side navigation
             side = new Panel(); side.Dock = Ux.Lead; side.Width = Ux.S(208); side.Tag = "side"; side.Padding = new Padding(Ux.S(8), Ux.S(10), Ux.S(8), Ux.S(8));
-            string[] names = { L.T("לוח ונעוצים", "Clipboard & pins"), L.T("מכשירים", "Devices"), L.T("שולחן עבודה מרוחק", "Remote Desktop"), L.T("הגדרות", "Settings") };
-            int[] glyphs = { Ux.GClip, Ux.GDevices, Ux.GRemote, Ux.GSettings };
-            nav = new Button[4];
-            for (int i = 3; i >= 0; i--)
+            string[] names = { L.T("לוח ונעוצים", "Clipboard & pins"), L.T("מכשירים", "Devices"), L.T("שולחן עבודה מרוחק", "Remote Desktop"), L.T("הגדרות", "Settings"), L.T("גיבוי ושחזור", "Backup & restore") };
+            int[] glyphs = { Ux.GClip, Ux.GDevices, Ux.GRemote, Ux.GSettings, Ux.GBackup };
+            nav = new Button[5];
+            for (int i = 4; i >= 0; i--)
             {
                 int idx = i; var b = new Button(); b.UseMnemonic = false; b.Text = "  " + names[i]; b.Dock = DockStyle.Top; b.Height = Ux.S(46); b.Tag = "nav"; b.Cursor = Cursors.Hand;
                 b.Image = Ux.Glyph(glyphs[i], 20, ic); b.TextImageRelation = TextImageRelation.ImageBeforeText; b.ImageAlign = ContentAlignment.MiddleLeft; b.TextAlign = ContentAlignment.MiddleLeft;
@@ -575,7 +608,7 @@ namespace Cliport
 
             // ---- pages
             content = new Panel(); content.Dock = DockStyle.Fill;
-            pages = new[] { BuildClips(), BuildDevices(), BuildRdp(), BuildSettings() };
+            pages = new[] { BuildClips(), BuildDevices(), BuildRdp(), BuildSettings(), BuildBackup() };
             foreach (var p in pages) { p.Dock = DockStyle.Fill; p.Visible = false; content.Controls.Add(p); }
             var line = new Panel(); line.Dock = Ux.Lead; line.Width = 1; line.Tag = "line";
 
@@ -729,11 +762,182 @@ namespace Cliport
             AddFill(p, fl);
             return p;
         }
+        // ---------------------------------------------------------------- backup and restore
+        Panel BuildBackup()
+        {
+            var p = Page(L.T("גיבוי ושחזור", "Backup & restore"), L.T("גיבוי כולל את הצימוד, ההגדרות המשותפות, הנעוצים, רשימת המכשירים וההעדפות. שחזור מחזיר הכול בלי פעולה נוספת.", "A backup holds the pairing, shared settings, pins, device list and preferences. Restoring brings everything back with no further steps."));
+            var form = new Panel(); form.Height = Ux.S(128); form.Tag = "card"; form.Padding = new Padding(Ux.S(12), Ux.S(10), Ux.S(12), Ux.S(8));
+            tbBkName = new TextBox(); tbBkName.Dock = DockStyle.Top; tbBkName.MaxLength = 80; Ux.Cue(tbBkName, L.T("שם הגיבוי (למשל: לפני החלפת מחשב)", "Backup name (for example: before replacing the PC)"));
+            var g1 = new Panel(); g1.Dock = DockStyle.Top; g1.Height = Ux.S(6); g1.Tag = "card";
+            tbBkDesc = new TextBox(); tbBkDesc.Dock = DockStyle.Top; tbBkDesc.MaxLength = 300; Ux.Cue(tbBkDesc, L.T("תיאור (אופציונלי)", "Description (optional)"));
+            cbBkHist = new CheckBox(); cbBkHist.Text = L.T("כלול גם את היסטוריית הלוח", "Include the clipboard history too"); cbBkHist.AutoSize = true; cbBkHist.Margin = new Padding(Ux.S(8), Ux.S(8), Ux.S(8), 0);
+            var row = Ux.Row(DockStyle.Top, Ux.Btn(L.T("צור גיבוי", "Create backup"), delegate { CreateBackup(); }, "primary"), cbBkHist); row.Tag = "card";
+            form.Controls.Add(row); form.Controls.Add(tbBkDesc); form.Controls.Add(g1); form.Controls.Add(tbBkName);
+            AddTop(p, form);
+            var gap = new Panel(); gap.Height = Ux.S(8); AddTop(p, gap);
+            p.Controls.Add(Ux.Row(DockStyle.Bottom,
+                Ux.Btn(L.T("שחזר", "Restore"), delegate { RestoreSelected(); }, "primary"),
+                Ux.Btn(L.T("הורד קובץ גיבוי...", "Download backup file..."), delegate { ExportSelected(); }),
+                Ux.Btn(L.T("ייבא מקובץ...", "Import from file..."), delegate { ImportBackup(); }),
+                Ux.Btn(L.T("מחק", "Delete"), delegate { DeleteBackup(); }, "danger")));
+            lbBackups = new CardList(); lbBackups.ItemHeight = Ux.S(58);
+            lbBackups.DoubleClick += delegate { RestoreSelected(); };
+            lbBackups.KeyDown += delegate (object s, KeyEventArgs e) { if (e.KeyCode == Keys.Delete) { DeleteBackup(); e.Handled = true; } };
+            AddFill(p, lbBackups);
+            return p;
+        }
+        void RefreshBackups()
+        {
+            if (lbBackups == null) return;
+            lbBackups.BeginUpdate(); lbBackups.Items.Clear();
+            foreach (var b in eng.LocalBackups())
+            {
+                var c = new Card(); c.Glyph = Ux.GBackup; c.Tint = Theme.Accent; c.Data = b; c.Title = b.Name;
+                string when = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc).AddMilliseconds(b.Created).ToLocalTime().ToString("dd/MM/yyyy HH:mm");
+                c.Sub = (b.Desc != "" ? b.Desc + "   •   " : "") + b.Device;
+                c.Badge = when + "   •   " + b.PinCount + L.T(" נעוצים", " pins") + "   •   " + (b.DeviceCount + 1) + L.T(" מכשירים", " devices") + (b.HasHistory ? L.T("   •   היסטוריה", "   •   history") : "");
+                lbBackups.Items.Add(c);
+            }
+            if (lbBackups.Items.Count == 0) { var c = new Card(); c.Hint = true; c.Title = L.T("אין גיבויים מקומיים עדיין - תן שם ולחץ \"צור גיבוי\", או ייבא קובץ", "No local backups yet - enter a name and click \"Create backup\", or import a file"); lbBackups.Items.Add(c); }
+            lbBackups.EndUpdate();
+        }
+        BackupInfo SelBackup() { var c = lbBackups == null ? null : lbBackups.Selected; return c == null ? null : c.Data as BackupInfo; }
+        void CreateBackup()
+        {
+            if (!eng.Paired) return;
+            string name = tbBkName.Text.Trim(); if (name == "") name = L.T("גיבוי ", "Backup ") + DateTime.Now.ToString("dd/MM/yyyy HH:mm");
+            eng.SaveLocal(name, tbBkDesc.Text.Trim(), cbBkHist.Checked);
+            tbBkName.Text = ""; tbBkDesc.Text = ""; RefreshBackups(); if (lbBackups.Items.Count > 0) lbBackups.SelectedIndex = 0;
+            stInfo.Text = L.T("הגיבוי נשמר: ", "Backup saved: ") + name;
+        }
+        void DeleteBackup()
+        {
+            var b = SelBackup(); if (b == null) return;
+            if (MessageBox.Show(this, L.T("למחוק את הגיבוי \"", "Delete the backup \"") + b.Name + "\"?", "Cliport", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+            eng.DeleteLocal(b); RefreshBackups();
+        }
+        void ExportSelected()
+        {
+            var b = SelBackup(); if (b == null) { stInfo.Text = L.T("בחר גיבוי מהרשימה", "Select a backup from the list"); return; }
+            string pwd;
+            using (var pf = new PasswordForm(L.T("סיסמה לקובץ הגיבוי", "Password for the backup file"),
+                L.T("הקובץ מכיל את מפתח ההצפנה של הקבוצה. מומלץ להגן עליו בסיסמה.\nהשאר ריק כדי לשמור קובץ ללא סיסמה.", "The file contains your group's encryption key. Protecting it with a password is recommended.\nLeave empty to save the file without a password."), true))
+            { if (pf.ShowDialog(this) != DialogResult.OK) return; pwd = pf.Password; }
+            using (var sd = new SaveFileDialog())
+            {
+                sd.Filter = L.T("גיבוי Cliport", "Cliport backup") + " (*" + BackupFile.Ext + ")|*" + BackupFile.Ext; sd.FileName = "Cliport-" + string.Join("_", b.Name.Split(Path.GetInvalidFileNameChars())) + BackupFile.Ext;
+                if (sd.ShowDialog(this) != DialogResult.OK) return;
+                string text = b.Text;
+                if (pwd != "") { var h = BackupFile.Header(b.Text); text = BackupFile.Create(b.Name, b.Desc, b.Device, b.Created, BackupFile.Payload(h, null), pwd); }
+                File.WriteAllText(sd.FileName, text, new UTF8Encoding(false));
+                stInfo.Text = L.T("קובץ הגיבוי נשמר", "The backup file was saved");
+            }
+        }
+        /// <summary>Opens a backup file, asking for its password when needed. Returns the header and payload, or null.</summary>
+        bool LoadBackupFile(out Dictionary<string, object> header, out Dictionary<string, object> payload)
+        {
+            header = null; payload = null;
+            using (var od = new OpenFileDialog())
+            {
+                od.Filter = L.T("גיבוי Cliport", "Cliport backup") + " (*" + BackupFile.Ext + ")|*" + BackupFile.Ext + "|" + L.T("כל הקבצים", "All files") + "|*.*";
+                if (od.ShowDialog() != DialogResult.OK) return false;
+                string text; try { text = File.ReadAllText(od.FileName, Encoding.UTF8); } catch (Exception e) { MessageBox.Show(e.Message, "Cliport"); return false; }
+                header = BackupFile.Header(text);
+                if (header == null) { MessageBox.Show(L.T("זה אינו קובץ גיבוי של Cliport.", "This is not a Cliport backup file."), "Cliport", MessageBoxButtons.OK, MessageBoxIcon.Warning); return false; }
+            }
+            if (!Json.B(header, "protected")) { payload = BackupFile.Payload(header, null); }
+            else
+                while (payload == null)
+                {
+                    using (var pf = new PasswordForm(L.T("סיסמת הגיבוי", "Backup password"), L.T("הגיבוי \"", "The backup \"") + Json.S(header, "name") + L.T("\" מוגן בסיסמה.", "\" is protected with a password."), false))
+                    {
+                        if (pf.ShowDialog() != DialogResult.OK) return false;
+                        payload = BackupFile.Payload(header, pf.Password);
+                        if (payload == null) MessageBox.Show(L.T("הסיסמה שגויה.", "Wrong password."), "Cliport", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    }
+                }
+            if (payload == null) { MessageBox.Show(L.T("קובץ הגיבוי פגום.", "The backup file is damaged."), "Cliport", MessageBoxButtons.OK, MessageBoxIcon.Warning); return false; }
+            return true;
+        }
+        void ImportBackup()
+        {
+            Dictionary<string, object> h, p; if (!LoadBackupFile(out h, out p)) return;
+            // keep a copy inside the tool, then offer to restore it right away
+            eng.StoreLocal(BackupFile.Create(Json.S(h, "name"), Json.S(h, "description"), Json.S(h, "device"), Json.L(h, "created"), p, null));
+            RefreshBackups();
+            if (MessageBox.Show(this, L.T("הגיבוי \"", "The backup \"") + Json.S(h, "name") + L.T("\" יובא ונשמר בכלי.\nלשחזר אותו עכשיו?", "\" was imported and saved in the tool.\nRestore it now?"), "Cliport", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
+                ApplyRestore(p, Json.S(h, "name"), true);
+        }
+        void RestoreSelected()
+        {
+            var b = SelBackup(); if (b == null) { stInfo.Text = L.T("בחר גיבוי מהרשימה", "Select a backup from the list"); return; }
+            if (MessageBox.Show(this, L.T("לשחזר את הגיבוי \"", "Restore the backup \"") + b.Name + L.T("\"?\nהצימוד, ההגדרות, הנעוצים וההעדפות יוחלפו בתוכן הגיבוי. המצב הנוכחי יישמר קודם כגיבוי אוטומטי.", "\"?\nPairing, settings, pins and preferences will be replaced by the backup. The current state is saved first as an automatic backup."),
+                "Cliport", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+            ApplyRestore(BackupFile.Payload(BackupFile.Header(b.Text), null), b.Name, true);
+        }
+        /// <summary>Restores a payload: safety backup of the current state, apply, re-apply language / theme / start-up, rebuild the window.</summary>
+        void ApplyRestore(Dictionary<string, object> payload, string name, bool safetyBackup)
+        {
+            if (payload == null) return;
+            try
+            {
+                if (safetyBackup && eng.Paired && !eng.Demo) eng.SaveLocal(L.T("אוטומטי - לפני שחזור", "Automatic - before restore"), L.T("נוצר אוטומטית לפני שחזור של: ", "Created automatically before restoring: ") + name, true);
+                eng.Restore(payload);
+                var prefs = Json.D(payload, "prefs");
+                if (prefs != null && prefs.ContainsKey("autostart") && !eng.Demo) { try { Autostart.Enabled = Json.B(prefs, "autostart"); } catch { } }
+                string lg = cfg.S("lang"); if (lg != "") L.En = lg == "en";
+                if (cfg.S("theme") != "") Theme.Mode = cfg.S("theme");
+                Rebuild();
+                Toast("Cliport", L.T("השחזור הושלם: ", "Restore completed: ") + name);
+                stInfo.Text = L.T("השחזור הושלם: ", "Restore completed: ") + name;
+            }
+            catch (Exception e) { Log.Write("restore failed: " + e); MessageBox.Show(L.T("השחזור נכשל: ", "Restore failed: ") + e.Message, "Cliport", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
+        }
+        public bool CliRestore(string path, string password)
+        {
+            try
+            {
+                var h = BackupFile.Header(File.ReadAllText(path, Encoding.UTF8));
+                var p = h == null ? null : BackupFile.Payload(h, password);
+                if (p == null) { Log.Write("--restore: not a valid backup, or wrong password: " + path); return false; }
+                eng.StoreLocal(BackupFile.Create(Json.S(h, "name"), Json.S(h, "description"), Json.S(h, "device"), Json.L(h, "created"), p, null));
+                ApplyRestore(p, Json.S(h, "name"), false);
+                return eng.Paired;
+            }
+            catch (Exception e) { Log.Write("--restore failed: " + e.Message); return false; }
+        }
+        public void CliBackup(string path, string password)
+        {
+            try
+            {
+                File.WriteAllText(path, BackupFile.Create(L.T("גיבוי ", "Backup ") + DateTime.Now.ToString("dd/MM/yyyy HH:mm"), "", cfg.DeviceName, App.Now(), eng.BackupPayload(true), password), new UTF8Encoding(false));
+                Log.Write("--backup written: " + path);
+            }
+            catch (Exception e) { Log.Write("--backup failed: " + e.Message); }
+        }
+        /// <summary>Used by the pairing window on a fresh installation: restore from the newest local backup or from a file.</summary>
+        bool RestoreInteractive()
+        {
+            var local = eng.LocalBackups();
+            if (local.Count > 0)
+            {
+                var b = local[0];
+                var r = MessageBox.Show(L.T("נמצא גיבוי מקומי: \"", "A local backup was found: \"") + b.Name + L.T("\".\nלשחזר ממנו? (\"לא\" - בחירת קובץ גיבוי)", "\".\nRestore from it? (\"No\" - choose a backup file)"), "Cliport", MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question);
+                if (r == DialogResult.Cancel) return false;
+                if (r == DialogResult.Yes) { ApplyRestore(BackupFile.Payload(BackupFile.Header(b.Text), null), b.Name, false); return eng.Paired; }
+            }
+            Dictionary<string, object> h, p; if (!LoadBackupFile(out h, out p)) return false;
+            eng.StoreLocal(BackupFile.Create(Json.S(h, "name"), Json.S(h, "description"), Json.S(h, "device"), Json.L(h, "created"), p, null));
+            ApplyRestore(p, Json.S(h, "name"), false);
+            return eng.Paired;
+        }
+
         void ShowPage(int i)
         {
             page = i;
             for (int k = 0; k < pages.Length; k++) { pages[k].Visible = k == i; nav[k].Tag = k == i ? "nav+" : "nav"; nav[k].Font = k == i ? Ux.FBold : Ux.F; Theme.Apply(nav[k]); }
             if (i == 1 || i == 2) RefreshDevices();
+            if (i == 4) RefreshBackups();
             if (i != 0 && Visible) nav[i].Focus();
             if (i == 0 && lbClips != null && Visible) lbClips.Focus();
         }
@@ -1070,9 +1274,10 @@ namespace Cliport
             pairing = true;
             try
             {
-                using (var pf = new PairForm())
+                using (var pf = new PairForm(RestoreInteractive))
                 {
                     if (pf.ShowDialog() != DialogResult.OK) return false;
+                    if (pf.Restored) return true;            // a backup was restored: paired, configured and connected already
                     cfg.Code = pf.Code; cfg.Save(); eng.Start(); RefreshAll();
                     if (!cfg.B("askedAutostart", false))
                     {
@@ -1118,7 +1323,7 @@ namespace Cliport
         static int Main(string[] args)
         {
             string data = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), App.Name);
-            string join = null, lang = null, theme = null; bool initNew = false, minimized = false, demo = false; int wdPid = 0;
+            string join = null, lang = null, theme = null, backupTo = null, restoreFrom = null, password = null; bool initNew = false, minimized = false, demo = false; int wdPid = 0;
             for (int i = 0; i < args.Length; i++)
             {
                 switch (args[i])
@@ -1134,6 +1339,9 @@ namespace Cliport
                     case "--demo": demo = true; Recovery.WatchdogEnabled = false; break;      // sample data, no network (documentation screenshots)
                     case "--page": if (i + 1 < args.Length) int.TryParse(args[++i], out StartPage); break;
                     case "--open": if (i + 1 < args.Length) OpenWhat = args[++i]; break;      // demo only: about | code | pair | confirm | pins
+                    case "--backup": if (i + 1 < args.Length) backupTo = args[++i]; break;      // write a backup file at start-up
+                    case "--restore": if (i + 1 < args.Length) restoreFrom = args[++i]; break;  // unattended restore (fresh installation)
+                    case "--password": if (i + 1 < args.Length) password = args[++i]; break;    // for --backup / --restore
                 }
             }
             try { Native.SetProcessDPIAware(); } catch { }
@@ -1170,7 +1378,9 @@ namespace Cliport
             var form = new MainForm(cfg, demo);
             var waiter = new Thread(delegate () { while (true) { showEvt.WaitOne(); try { form.BeginInvoke((Action)form.ShowMain); } catch { } } });
             waiter.IsBackground = true; waiter.Start();
+            if (restoreFrom != null) form.CliRestore(restoreFrom, password);
             if (!demo && !form.EnsurePaired()) { form.ExitApp(); return 0; }
+            if (backupTo != null) form.CliBackup(backupTo, password);
             if (!minimized) form.ShowMain();
             Application.Run();
             Recovery.CleanExit();

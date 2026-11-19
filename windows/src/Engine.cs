@@ -291,6 +291,9 @@ namespace Cliport
             foreach (string s in p) { var it = new PinItem(); it.Id = App.RandHex(6); it.Text = s; it.Ts = t--; Pins.Add(it); }
             AddDemoDevice("iPhone 15 Pro", "ios", true, false); AddDemoDevice("iPad Air", "ios", true, false);
             AddDemoDevice("OFFICE-PC", "win", true, true, "100.84.12.7", "192.168.1.20", "OFFICE-PC"); AddDemoDevice("LAPTOP-HOME", "win", false, true, "100.91.3.44", "LAPTOP-HOME");
+            foreach (string f in Directory.GetFiles(BackupDir)) File.Delete(f);
+            StoreLocal(BackupFile.Create(L.T("לפני החלפת מחשב", "Before replacing the PC"), L.T("כל ההגדרות והנעוצים, כולל Telegram", "All settings and pins, including Telegram"), "MY-PC", App.Now() - 86400000L * 9, BackupPayload(true), null));
+            StoreLocal(BackupFile.Create(L.T("גיבוי שבועי", "Weekly backup"), L.T("מצב תקין אחרי הוספת האייפד", "Known-good state after adding the iPad"), "MY-PC", App.Now() - 86400000L * 2, BackupPayload(false), null));
             var o = new Offer(); o.Fid = "demo"; o.From = "demo0"; o.FromName = "iPhone 15 Pro"; o.Ts = t;
             var fe = new FileEntry(); fe.Name = L.T("דוח רבעוני.pdf", "Quarterly report.pdf"); fe.Size = 2516582; fe.Mime = "application/pdf"; o.Files.Add(fe);
             return o;
@@ -651,6 +654,96 @@ namespace Cliport
             return got;
         }
 
+        // ---------- backup and restore ----------
+        /// <summary>Everything needed to bring a fresh installation back to full function: pairing, shared settings, pins, devices, preferences.</summary>
+        public Dictionary<string, object> BackupPayload(bool withHistory)
+        {
+            var p = new Dictionary<string, object>();
+            p["code"] = Keys != null ? Keys.Code : Cfg.Code;
+            p["tgToken"] = TgToken; p["tgChat"] = TgChat; p["relays"] = Cfg.S("relays");
+            p["pins"] = PinsMsg()["items"];
+            var devs = new List<object>();
+            foreach (var d in Devices.Values)
+            {
+                var o = new Dictionary<string, object>(); o["id"] = d.Id; o["name"] = d.Name; o["plat"] = d.Plat; o["ver"] = d.Ver; o["ts"] = d.Ts;
+                o["rdpOn"] = d.RdpOn; o["rdpUser"] = d.RdpUser ?? ""; o["rdpPort"] = d.RdpPort; o["addrs"] = d.Addrs; devs.Add(o);
+            }
+            p["devices"] = devs;
+            var prefs = new Dictionary<string, object>(); prefs["lang"] = Cfg.S("lang"); prefs["theme"] = Cfg.S("theme"); prefs["autoAccept"] = Cfg.B("autoAccept", false); prefs["autostart"] = Autostart.Enabled;
+            p["prefs"] = prefs;
+            if (withHistory) p["history"] = new List<string>(History);
+            return p;
+        }
+        /// <summary>Applies a backup payload and reconnects. Nothing else is needed afterwards.</summary>
+        public void Restore(Dictionary<string, object> p)
+        {
+            string code = Json.S(p, "code"); if (KeyRing.FromCode(code) == null) throw new InvalidDataException("bad backup");
+            if (!Demo) Stop();
+            Cfg.Code = B32.Encode(B32.Decode(code));
+            Cfg.Set("tgToken", Json.S(p, "tgToken")); Cfg.Set("tgChat", Json.S(p, "tgChat")); Cfg.Set("relays", Json.S(p, "relays"));
+            Cfg.Set("cfgTs", App.Now());                       // the restored shared settings win and spread to the other devices
+            var prefs = Json.D(p, "prefs");
+            if (prefs != null)
+            {
+                if (Json.S(prefs, "lang") != "") Cfg.Set("lang", Json.S(prefs, "lang"));
+                if (Json.S(prefs, "theme") != "") Cfg.Set("theme", Json.S(prefs, "theme"));
+                if (prefs.ContainsKey("autoAccept")) Cfg.Set("autoAccept", Json.B(prefs, "autoAccept"));
+            }
+            // pins: live items get a fresh timestamp so they come back on every device, in their original order
+            Pins.Clear(); long now = App.Now(); int n = 0;
+            var items = Json.List(p, "pins"); items.Sort(delegate (Dictionary<string, object> a, Dictionary<string, object> b) { return Json.L(b, "ts").CompareTo(Json.L(a, "ts")); });
+            foreach (var o in items)
+            {
+                var it = new PinItem(); it.Id = Json.S(o, "id"); it.Text = Json.S(o, "text"); it.Del = Json.B(o, "del"); it.Ts = it.Del ? Json.L(o, "ts") : now - n++;
+                if (it.Id != "") Pins.Add(it);
+            }
+            if (p.ContainsKey("history")) { History.Clear(); History.AddRange(Json.Strs(p, "history")); SaveHistory(); }
+            Devices.Clear();
+            foreach (var o in Json.List(p, "devices"))
+            {
+                string id = Json.S(o, "id"); if (id == "" || id == Cfg.DeviceId) continue;
+                var d = new DeviceInfo(); d.Id = id; d.Name = Json.S(o, "name"); d.Plat = Json.S(o, "plat"); d.Ver = Json.S(o, "ver"); d.Ts = Json.L(o, "ts"); d.Online = false;
+                d.RdpOn = Json.B(o, "rdpOn"); d.RdpUser = Json.S(o, "rdpUser"); d.RdpPort = (int)Json.L(o, "rdpPort"); if (d.RdpPort == 0) d.RdpPort = 3389; d.Addrs = Json.Strs(o, "addrs");
+                Devices[id] = d;
+            }
+            Cfg.Save(); SavePins();
+            Log.Write("backup restored: " + Pins.Count + " pin record(s), " + Devices.Count + " known device(s)");
+            if (!Demo) Start(); else Keys = KeyRing.FromCode(Cfg.Code);
+            Fire(PinsChanged); Fire(HistoryChanged); Fire(DevicesChanged); lastUp = -1; FireStatus();
+        }
+        static string BackupDir { get { string d = App.PathOf("backups"); Directory.CreateDirectory(d); return d; } }
+        /// <summary>Backups kept inside the tool (protected with Windows DPAPI). Newest first.</summary>
+        public List<BackupInfo> LocalBackups()
+        {
+            var list = new List<BackupInfo>();
+            foreach (string f in Directory.GetFiles(BackupDir, "*" + BackupFile.Ext))
+            {
+                try
+                {
+                    string text = Encoding.UTF8.GetString(ProtectedData.Unprotect(File.ReadAllBytes(f), null, DataProtectionScope.CurrentUser));
+                    var h = BackupFile.Header(text); if (h == null) continue;
+                    var b = new BackupInfo(); b.Path = f; b.Text = text; b.Name = Json.S(h, "name"); b.Desc = Json.S(h, "description"); b.Device = Json.S(h, "device"); b.Created = Json.L(h, "created");
+                    var p = BackupFile.Payload(h, null);
+                    if (p != null) { b.HasHistory = p.ContainsKey("history"); b.DeviceCount = Json.List(p, "devices").Count; foreach (var o in Json.List(p, "pins")) if (!Json.B(o, "del")) b.PinCount++; }
+                    list.Add(b);
+                }
+                catch (Exception e) { Log.Write("backup unreadable " + f + ": " + e.Message); }
+            }
+            list.Sort(delegate (BackupInfo a, BackupInfo b) { return b.Created.CompareTo(a.Created); });
+            return list;
+        }
+        public void StoreLocal(string backupFileText)
+        {
+            string f = System.IO.Path.Combine(BackupDir, DateTime.Now.ToString("yyyyMMdd-HHmmss") + "-" + App.RandHex(3) + BackupFile.Ext);
+            File.WriteAllBytes(f, ProtectedData.Protect(Encoding.UTF8.GetBytes(backupFileText), null, DataProtectionScope.CurrentUser));
+        }
+        public void SaveLocal(string name, string desc, bool withHistory)
+        {
+            StoreLocal(BackupFile.Create(name, desc, Cfg.DeviceName, App.Now(), BackupPayload(withHistory), null));
+            Log.Write("local backup created: " + name);
+        }
+        public void DeleteLocal(BackupInfo b) { try { File.Delete(b.Path); } catch { } }
+
         // ---------- local persistence (DPAPI-protected) ----------
         void LoadLocal()
         {
@@ -668,6 +761,11 @@ namespace Cliport
         }
         void SavePins() { Secure.Save("pins.bin", PinsMsg()); }
         void SaveHistory() { var d = new Dictionary<string, object>(); d["items"] = History; Secure.Save("history.bin", d); }
+    }
+
+    sealed class BackupInfo
+    {
+        public string Path, Name, Desc, Device, Text; public long Created; public bool HasHistory; public int PinCount, DeviceCount;
     }
 
     static class Secure

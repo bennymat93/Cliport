@@ -273,6 +273,54 @@ namespace Cliport
         }
     }
 
+    /// <summary>
+    /// Backup file (.clipbak), identical on Windows and iOS. JSON:
+    ///   { cliportBackup:1, name, description, created(ms), device, app, protected, salt(b64), data(b64) }
+    /// data = the payload JSON; when a password is set it is sealed with a key derived by PBKDF2-HMAC-SHA256 (150,000 rounds).
+    /// Name and description stay readable so the file can be identified before the password is entered.
+    /// </summary>
+    static class BackupFile
+    {
+        public const string Ext = ".clipbak";
+        static byte[] Derive(string password, byte[] salt)
+        {
+            using (var k = new Rfc2898DeriveBytes(Encoding.UTF8.GetBytes(password), salt, 150000, HashAlgorithmName.SHA256)) return k.GetBytes(16);
+        }
+        public static string Create(string name, string desc, string device, long created, Dictionary<string, object> payload, string password)
+        {
+            var h = new Dictionary<string, object>();
+            h["cliportBackup"] = 1; h["name"] = name; h["description"] = desc; h["created"] = created; h["device"] = device; h["app"] = App.Version;
+            byte[] plain = Encoding.UTF8.GetBytes(Json.Ser(payload));
+            if (!string.IsNullOrEmpty(password))
+            {
+                var salt = new byte[16]; using (var r = RandomNumberGenerator.Create()) r.GetBytes(salt);
+                h["protected"] = true; h["salt"] = Convert.ToBase64String(salt); h["data"] = Convert.ToBase64String(new KeyRing(Derive(password, salt)).Seal(plain));
+            }
+            else { h["protected"] = false; h["salt"] = ""; h["data"] = Convert.ToBase64String(plain); }
+            return Json.Ser(h);
+        }
+        public static Dictionary<string, object> Header(string text)
+        {
+            try { var d = Json.Parse(text); return d != null && Json.L(d, "cliportBackup") == 1 && Json.S(d, "data") != "" ? d : null; } catch { return null; }
+        }
+        /// <summary>Returns null when the password is wrong or the file is damaged.</summary>
+        public static Dictionary<string, object> Payload(Dictionary<string, object> header, string password)
+        {
+            try
+            {
+                byte[] data = Convert.FromBase64String(Json.S(header, "data"));
+                if (Json.B(header, "protected"))
+                {
+                    data = new KeyRing(Derive(password ?? "", Convert.FromBase64String(Json.S(header, "salt")))).Open(data);
+                    if (data == null) return null;
+                }
+                var p = Json.Parse(Encoding.UTF8.GetString(data));
+                return p != null && KeyRing.FromCode(Json.S(p, "code")) != null ? p : null;
+            }
+            catch { return null; }
+        }
+    }
+
     /// <summary>Local settings. The pairing secret is stored encrypted with Windows DPAPI (current user).</summary>
     sealed class Config
     {
