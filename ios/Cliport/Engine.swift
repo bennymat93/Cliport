@@ -1,4 +1,4 @@
-// Cliport v1.0 (iOS) - sync engine. Same protocol as the Windows app. All state lives on the main queue.
+// Cliport v1.5 (iOS) - sync engine. Same protocol as the Windows app. All state lives on the main queue.
 import Foundation
 import UIKit
 import CryptoKit

@@ -1,4 +1,4 @@
-// Cliport v1.0 - Windows integration: clipboard window, Telegram storage, RDP, crash recovery.
+// Cliport v1.5 - Windows integration: clipboard window, Telegram storage, RDP, crash recovery.
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
