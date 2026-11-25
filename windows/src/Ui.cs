@@ -1,4 +1,4 @@
-// Cliport v1.6 - user interface: themes (light / device / dark), two languages, menu, toolbar, pages, dialogs, entry point.
+// Cliport v2.0 - user interface: themes (light / device / dark), two languages, menu, toolbar, pages, dialogs, entry point.
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -225,6 +225,36 @@ namespace Cliport
         }
         public Card Selected { get { var c = SelectedItem as Card; return c != null && !c.Hint ? c : null; } }
         // Screen readers: the rows are drawn by hand, so each one is described explicitly.
+        // UI Automation clients (Narrator) are answered by UiaList; MSAA clients (NVDA, JAWS) by ListAcc below.
+        UiaList uia;
+        protected override void WndProc(ref Message m)
+        {
+            if (m.Msg == 0x003D && (int)(long)m.LParam == -25)          // WM_GETOBJECT, UiaRootObjectId
+            {
+                try
+                {
+                    if (uia == null) uia = new UiaList(this);
+                    m.Result = System.Windows.Automation.Provider.AutomationInteropProvider.ReturnRawElementProvider(Handle, m.WParam, m.LParam, uia);
+                    return;
+                }
+                catch (Exception e) { Log.Write("uia: " + e.Message); }
+            }
+            base.WndProc(ref m);
+        }
+        protected override void OnSelectedIndexChanged(EventArgs e)
+        {
+            base.OnSelectedIndexChanged(e);
+            try
+            {
+                if (uia != null && Focused && System.Windows.Automation.Provider.AutomationInteropProvider.ClientsAreListening)
+                {
+                    var row = uia.Row(SelectedIndex);
+                    if (row != null) System.Windows.Automation.Provider.AutomationInteropProvider.RaiseAutomationEvent(
+                        System.Windows.Automation.AutomationElementIdentifiers.AutomationFocusChangedEvent, row, new System.Windows.Automation.AutomationEventArgs(System.Windows.Automation.AutomationElementIdentifiers.AutomationFocusChangedEvent));
+                }
+            }
+            catch { }
+        }
         protected override AccessibleObject CreateAccessibilityInstance() { return new ListAcc(this); }
         sealed class ListAcc : ControlAccessibleObject
         {
@@ -1470,6 +1500,14 @@ namespace Cliport
             var showEvt = new EventWaitHandle(false, EventResetMode.AutoReset, "Cliport-show-" + key);
             if (!created) { showEvt.Set(); return 0; }       // already running: just bring its window up
 
+            try
+            {
+                // .NET Framework 4.8 accessibility improvements (UI Automation for lists, menus, tool bars). Must be set before any window exists.
+                AppContext.SetSwitch("Switch.UseLegacyAccessibilityFeatures", false);
+                AppContext.SetSwitch("Switch.UseLegacyAccessibilityFeatures.2", false);
+                AppContext.SetSwitch("Switch.UseLegacyAccessibilityFeatures.3", false);
+            }
+            catch { }
             Application.EnableVisualStyles(); Application.SetCompatibleTextRenderingDefault(false);
             Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
             // level 0: a failing UI callback is logged and contained; the app keeps running

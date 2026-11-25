@@ -6,7 +6,7 @@ $root = Split-Path -Parent $PSScriptRoot
 if ($New -notmatch '^\d+\.\d+$') { throw 'Version must look like 1.6' }
 $old = (Get-Content (Join-Path $root 'VERSION') -Raw).Trim()
 if ($old -eq $New) { "Already $New"; return }
-$files = @('.github\workflows\build-ipa.yml', 'README.md', 'docs\guide\guide.he.html', 'docs\guide\guide.en.html', 'ios\project.yml', 'tools\Setup.cs') +
+$files = @('.github\workflows\build-ipa.yml', 'README.md', 'docs\guide\guide.he.html', 'docs\guide\guide.en.html', 'ios\project.yml', 'tools\Setup.cs', 'web\index.html') +
          @(Get-ChildItem (Join-Path $root 'ios\Cliport') -Filter *.swift | ForEach-Object { 'ios\Cliport\' + $_.Name }) +
          @(Get-ChildItem (Join-Path $root 'windows\src') -Filter *.cs | ForEach-Object { 'windows\src\' + $_.Name })
 $o = [regex]::Escape($old)

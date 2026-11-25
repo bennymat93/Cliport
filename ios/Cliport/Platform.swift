@@ -1,4 +1,4 @@
-// Cliport v1.6 (iOS) - background keep-alive, notifications, crash recovery, Telegram storage.
+// Cliport v2.0 (iOS) - background keep-alive, notifications, crash recovery, Telegram storage.
 import Foundation
 import AVFoundation
 import UserNotifications

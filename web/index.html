@@ -1,0 +1,483 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#4f46e5">
+<title>Cliport Web</title>
+<!-- Cliport v2.0 - web client. One file, no server of its own: it talks to the same relays as the apps, with the same end-to-end encryption.
+     Works in any current browser (Android, macOS, Linux, ChromeOS, Windows). The pairing code never leaves this browser. -->
+<style>
+:root { --bg:#f5f6fa; --card:#fff; --text:#16181d; --sub:#667085; --line:#e4e7ec; --accent:#4f46e5; --accent-text:#fff; --ok:#12b76a; --warn:#f79009; --danger:#d92d20; }
+@media (prefers-color-scheme: dark) { :root { --bg:#0f1115; --card:#1a1d24; --text:#eef0f4; --sub:#98a2b3; --line:#2b303b; --accent:#7c83ff; --accent-text:#0f1115; } }
+* { box-sizing: border-box; }
+body { margin:0; background:var(--bg); color:var(--text); font:16px/1.5 system-ui, "Segoe UI", Arial, sans-serif; }
+main { max-width:760px; margin:0 auto; padding:16px; }
+h1 { font-size:22px; margin:6px 0 2px; } h2 { font-size:15px; color:var(--sub); margin:22px 4px 8px; font-weight:600; }
+.card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:14px; margin-bottom:10px; }
+.row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+.grow { flex:1 1 200px; min-width:0; }
+button { font:inherit; border:1px solid var(--line); background:var(--card); color:var(--text); border-radius:10px; padding:8px 14px; cursor:pointer; }
+button.primary { background:var(--accent); color:var(--accent-text); border-color:var(--accent); font-weight:600; }
+button.small { padding:4px 10px; font-size:14px; } button:disabled { opacity:.5; cursor:default; }
+input, textarea { font:inherit; width:100%; border:1px solid var(--line); background:var(--bg); color:var(--text); border-radius:10px; padding:10px; }
+textarea { min-height:84px; resize:vertical; }
+.dot { width:10px; height:10px; border-radius:50%; background:var(--warn); display:inline-block; flex:none; } .dot.on { background:var(--ok); }
+.sub { color:var(--sub); font-size:14px; } .item { border-top:1px solid var(--line); padding:10px 0; } .item:first-child { border-top:0; padding-top:0; }
+.text { white-space:pre-wrap; overflow-wrap:anywhere; max-height:7.5em; overflow:hidden; unicode-bidi:plaintext; }
+.badge { font-size:12px; border:1px solid var(--line); border-radius:999px; padding:1px 8px; color:var(--sub); }
+.hidden { display:none !important; } .code { direction:ltr; text-align:center; letter-spacing:1px; font-family:ui-monospace, Consolas, monospace; }
+progress { width:100%; } a { color:var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <div class="row"><h1 class="grow">Cliport <span class="sub" style="font-size:14px">Web v2.0</span></h1><button class="small" id="langBtn"></button></div>
+
+  <section id="pairView" class="hidden">
+    <div class="card">
+      <p id="pairIntro"></p>
+      <input id="codeIn" class="code" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="XXXXX-XXXXX-XXXXX-XXXXX-XXXXX-X">
+      <p></p><input id="nameIn" maxlength="40">
+      <p class="row"><button class="primary" id="pairBtn"></button><span class="sub" id="pairErr"></span></p>
+      <p class="sub" id="pairNote"></p>
+    </div>
+  </section>
+
+  <section id="mainView" class="hidden">
+    <div class="card">
+      <div class="row"><span class="dot" id="dot"></span><span class="grow" id="status"></span></div>
+      <p class="sub" id="banner"></p>
+      <textarea id="textIn"></textarea>
+      <p class="row">
+        <button class="primary" id="sendBtn"></button><button id="clipBtn"></button>
+        <button id="fileBtn"></button><input type="file" id="fileIn" class="hidden">
+      </p>
+      <label class="sub row"><input type="checkbox" id="autoChk" style="width:auto"> <span id="autoLbl"></span></label>
+    </div>
+    <div id="offers"></div>
+    <h2 id="pinsH"></h2><div class="card" id="pins"></div>
+    <h2 id="histH"></h2><div class="card" id="hist"></div>
+    <h2 id="devH"></h2><div class="card" id="devs"></div>
+    <p class="row"><button class="small" id="unpairBtn"></button><span class="sub grow" id="foot"></span></p>
+  </section>
+</main>
+<script>
+'use strict';
+// ---------- language ----------
+let EN = (localStorage.getItem('lang') || (navigator.language || 'he').slice(0, 2)) !== 'he';
+const T = (he, en) => EN ? en : he;
+const $ = id => document.getElementById(id);
+const enc = new TextEncoder(), dec = new TextDecoder();
+const now = () => Date.now();
+const hex = b => Array.from(b, x => x.toString(16).padStart(2, '0')).join('');
+const randHex = n => hex(crypto.getRandomValues(new Uint8Array(n)));
+const b64 = u8 => { let s = ''; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000)); return btoa(s); };
+const unb64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+const sizeText = n => n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB';
+const RELAYS = ['wss://broker.emqx.io:8084/mqtt', 'wss://broker.hivemq.com:8884/mqtt', 'wss://test.mosquitto.org:8081/mqtt'];
+const CHUNK = 48000, MAX_FILE = 25 * 1024 * 1024, MAX_INLINE = 180000;
+
+// ---------- crypto: identical to the apps (HKDF-SHA256, AES-256-CBC, HMAC-SHA256, optional raw deflate) ----------
+const B32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+function b32decode(s) {
+  const out = []; let buf = 0, bits = 0;
+  for (let c of s.toUpperCase()) {
+    if (c === '0') c = 'O'; if (c === '1') c = 'I'; if (c === '8') c = 'B';
+    const v = B32.indexOf(c); if (v < 0) continue;
+    buf = ((buf << 5) | v) & 0xFFFFFF; bits += 5;
+    if (bits >= 8) { out.push((buf >> (bits - 8)) & 255); bits -= 8; }
+  }
+  return new Uint8Array(out);
+}
+async function pipe(stream, data) {
+  const w = stream.writable.getWriter(); w.write(data); w.close();
+  return new Uint8Array(await new Response(stream.readable).arrayBuffer());
+}
+let K = null;   // { enc, mac, topic }
+async function makeKeys(code) {
+  const secret = b32decode(code); if (secret.length !== 16) return null;
+  const base = await crypto.subtle.importKey('raw', secret, 'HKDF', false, ['deriveBits']);
+  const derive = async info => new Uint8Array(await crypto.subtle.deriveBits({ name: 'HKDF', hash: 'SHA-256', salt: enc.encode('Cliport-v1'), info: enc.encode(info) }, base, 256));
+  return {
+    enc: await crypto.subtle.importKey('raw', await derive('enc'), 'AES-CBC', false, ['encrypt', 'decrypt']),
+    mac: await crypto.subtle.importKey('raw', await derive('mac'), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign', 'verify']),
+    topic: 'sc1/' + hex((await derive('topic')).subarray(0, 16))
+  };
+}
+async function seal(obj) {
+  let plain = enc.encode(JSON.stringify(obj)), ver = 1;
+  if (plain.length >= 200 && typeof CompressionStream === 'function') {
+    try { const z = await pipe(new CompressionStream('deflate-raw'), plain); if (z.length < plain.length * 0.9) { plain = z; ver = 2; } } catch (e) { }
+  }
+  const iv = crypto.getRandomValues(new Uint8Array(16));
+  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-CBC', iv }, K.enc, plain));
+  const body = new Uint8Array(17 + ct.length); body[0] = ver; body.set(iv, 1); body.set(ct, 17);
+  const tag = new Uint8Array(await crypto.subtle.sign('HMAC', K.mac, body));
+  const out = new Uint8Array(body.length + 32); out.set(body); out.set(tag, body.length);
+  return out;
+}
+async function unseal(env) {
+  if (env.length < 65 || (env[0] !== 1 && env[0] !== 2)) return null;
+  const n = env.length - 32, body = env.subarray(0, n);
+  if (!await crypto.subtle.verify('HMAC', K.mac, env.subarray(n), body)) return null;
+  let plain = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-CBC', iv: env.subarray(1, 17) }, K.enc, env.subarray(17, n)));
+  if (env[0] === 2) plain = await pipe(new DecompressionStream('deflate-raw'), plain);
+  return JSON.parse(dec.decode(plain));
+}
+
+// ---------- MQTT 3.1.1 over WebSocket (QoS 0) ----------
+const str = s => { const b = enc.encode(s); return [b.length >> 8, b.length & 255, ...b]; };
+class Link {
+  constructor(url) { this.url = url; this.up = false; this.backoff = 1000; this.buf = new Uint8Array(0); this.stopped = false; }
+  async start() {
+    if (this.stopped) return;
+    let ws;
+    try { ws = new WebSocket(this.url, 'mqtt'); } catch (e) { return this.retry(); }
+    this.ws = ws; ws.binaryType = 'arraybuffer'; this.buf = new Uint8Array(0); this.lastRx = now();
+    ws.onopen = async () => {
+      const will = await seal(stamp(Object.assign(devMsg(false), { will: true })));
+      const body = [...str('MQTT'), 4, 0x02 | 0x04 | 0x20, 0, 30, ...str('sc' + ME + randHex(2)), ...str(K.topic + '/st/dev/' + ME), will.length >> 8, will.length & 255, ...will];
+      this.send(0x10, new Uint8Array(body));
+    };
+    ws.onmessage = e => { this.lastRx = now(); const d = new Uint8Array(e.data); const m = new Uint8Array(this.buf.length + d.length); m.set(this.buf); m.set(d, this.buf.length); this.buf = m; this.parse(); };
+    ws.onclose = ws.onerror = () => { if (this.ws === ws) this.down(); };
+  }
+  down() {
+    clearInterval(this.ping); const was = this.up; this.up = false; const ws = this.ws; this.ws = null;
+    try { if (ws) { ws.onclose = ws.onerror = ws.onmessage = null; ws.close(); } } catch (e) { }
+    if (was) onLinkState(this);
+    this.retry();
+  }
+  retry() { if (this.stopped) return; const d = this.backoff + Math.random() * 700; this.backoff = Math.min(this.backoff * 2, 30000); setTimeout(() => { if (!this.ws) this.start(); }, d); }
+  stop() { this.stopped = true; if (this.up) this.send(0xE0, new Uint8Array(0)); this.down(); }
+  kick() { this.backoff = 1000; if (this.ws) this.down(); }
+  send(header, body) {
+    const ws = this.ws; if (!ws || ws.readyState !== 1) return false;
+    const head = [header]; let x = body.length;
+    do { let e = x % 128; x = Math.floor(x / 128); if (x > 0) e |= 128; head.push(e); } while (x > 0);
+    const pkt = new Uint8Array(head.length + body.length); pkt.set(head); pkt.set(body, head.length);
+    try { ws.send(pkt); return true; } catch (e) { return false; }
+  }
+  publish(topic, payload, retain) {
+    if (!this.up) return false;
+    const t = str(topic), body = new Uint8Array(t.length + payload.length); body.set(t); body.set(payload, t.length);
+    return this.send(0x30 | (retain ? 1 : 0), body);
+  }
+  parse() {
+    for (;;) {
+      const b = this.buf; if (b.length < 2) return;
+      let len = 0, mul = 1, i = 1, done = false;
+      while (i < b.length && i <= 4) { const d = b[i++]; len += (d & 127) * mul; mul *= 128; if (!(d & 128)) { done = true; break; } }
+      if (!done || b.length < i + len) return;
+      const header = b[0], body = b.subarray(i, i + len); this.buf = b.slice(i + len);
+      const type = header >> 4;
+      if (type === 2) {
+        if (body[1] !== 0) { this.down(); return; }
+        const subs = [K.topic + '/ev', K.topic + '/st/#', K.topic + '/f/' + ME];
+        let sb = [0, 1]; for (const s of subs) sb = sb.concat(str(s), [0]);
+        this.send(0x82, new Uint8Array(sb));
+        this.up = true; this.backoff = 1000;
+        clearInterval(this.ping);
+        this.ping = setInterval(() => { if (now() - this.lastRx > 32000) this.down(); else this.send(0xC0, new Uint8Array(0)); }, 10000);
+        onLinkState(this);
+      } else if (type === 3) {
+        const tl = (body[0] << 8) | body[1]; let off = 2 + tl;
+        const topic = dec.decode(body.subarray(2, off)); if ((header >> 1) & 3) off += 2;
+        onWire(topic, body.slice(off));
+      }
+    }
+  }
+}
+
+// ---------- engine ----------
+let ME = localStorage.getItem('deviceId'); if (!ME) { ME = randHex(8); localStorage.setItem('deviceId', ME); }
+let links = [], rr = 0;
+let lastClipTs = +localStorage.getItem('lastClipTs') || 0, lastText = '', pendingClip = null, lastOut = null, unseenRemote = null;
+let hist = JSON.parse(localStorage.getItem('history') || '[]'), pins = JSON.parse(localStorage.getItem('pins') || '[]');
+const devs = {}, seen = new Set(), seenQ = [], offers = {}, outgoing = {}, rxs = {};
+const upCount = () => links.filter(l => l.up).length;
+const deviceName = () => localStorage.getItem('name') || 'Web';
+const stamp = m => { if (!m.id) m.id = randHex(8); m.from = ME; if (!m.ts) m.ts = now(); return m; };
+const devMsg = online => ({ t: 'dev', name: deviceName(), plat: 'web', ver: "2.0", online });
+async function send(sub, m, retain) { const p = await seal(stamp(m)); let n = 0; for (const l of links) if (l.publish(K.topic + '/' + sub, p, retain)) n++; return n; }
+async function sendOne(sub, m) { const p = await seal(stamp(m)); const n = links.length; rr = (rr + 1) % n; for (let i = 0; i < n; i++) if (links[(rr + i) % n].publish(K.topic + '/' + sub, p, false)) return true; return false; }
+function publishDev() { send('st/dev/' + ME, devMsg(true), true); }
+function onLinkState(l) {
+  render();
+  if (l.up) {
+    publishDev();
+    if (pendingClip) publishClip(pendingClip); else if (lastOut && lastOut.ts === lastClipTs) send('st/clip', Object.assign({}, lastOut), true);
+    if (pins.length) publishPins();
+  } else if (upCount() > 0) publishDev();
+}
+let wireQ = Promise.resolve();
+function onWire(topic, payload) {       // one at a time, in arrival order
+  wireQ = wireQ.then(async () => {
+    if (!K || !topic.startsWith(K.topic + '/')) return;
+    let d = null; try { d = await unseal(payload); } catch (e) { } if (!d) return;
+    try { handle(topic.slice(K.topic.length + 1), d); } catch (e) { console.error(e); }
+  });
+}
+function handle(sub, d) {
+  if (sub.startsWith('st/dev/')) return onDev(sub.slice(7), d);
+  if (sub === 'st/pins') return mergePins(d);
+  if (sub === 'st/cfg') return;
+  if (d.from === ME) return;
+  if (sub === 'ev' || sub.startsWith('f/')) { if (seen.has(d.id)) return; seen.add(d.id); seenQ.push(d.id); if (seenQ.length > 1500) seen.delete(seenQ.shift()); }
+  switch (d.t) {
+    case 'clip': onClip(d); break;
+    case 'offer': onOffer(d); break;
+    case 'freq': if (d.to === ME) serveFile(d); break;
+    case 'fres': if (d.to === ME) onFres(d); break;
+    case 'fnak': if (d.to === ME) serveNak(d); break;
+    case 'fchunk': onChunk(d); break;
+  }
+}
+const nameOf = id => (devs[id] && devs[id].name) || T('מכשיר אחר', 'another device');
+function fresh(d) { const ts = +d.ts || 0; if (ts <= lastClipTs || now() - ts > 86400000) return false; lastClipTs = ts; localStorage.setItem('lastClipTs', ts); return true; }
+function addHistory(text) { const t = text.length > 100000 ? text.slice(0, 100000) : text; hist = [t].concat(hist.filter(x => x !== t)).slice(0, 60); try { localStorage.setItem('history', JSON.stringify(hist)); } catch (e) { } }
+function onClip(d) {
+  if (!fresh(d) || !d.text) return;
+  lastText = d.text; addHistory(d.text);
+  setBanner(T('התקבל מ-', 'Received from ') + nameOf(d.from));
+  if (document.hasFocus()) toClipboard(d.text, true); else unseenRemote = d.text;
+  render();
+}
+async function toClipboard(text, quiet) {
+  try { await navigator.clipboard.writeText(text); if (!quiet) setBanner(T('הועתק ללוח', 'Copied to the clipboard')); unseenRemote = null; return true; }
+  catch (e) { if (!quiet) setBanner(T('הדפדפן לא אפשר להעתיק. לחץ "העתק" ליד הפריט.', 'The browser did not allow copying. Press "Copy" next to the item.')); return false; }
+}
+async function publishClip(m) {
+  if (!m.ts) { lastClipTs = Math.max(now(), lastClipTs + 1); m.ts = lastClipTs; localStorage.setItem('lastClipTs', lastClipTs); }
+  if (!m.id) m.id = randHex(8);
+  const n = await send('ev', Object.assign({}, m), false); await send('st/clip', Object.assign({}, m), true);
+  pendingClip = n === 0 ? m : null; lastOut = m;
+}
+function localText(text) {
+  if (!text || text === lastText) return false;
+  if (enc.encode(text).length > MAX_INLINE) { localFile(new File([text], 'Cliport-text-' + now() + '.txt', { type: 'text/plain' }), true); lastText = text; return true; }
+  lastText = text; addHistory(text);
+  publishClip({ t: 'clip', kind: 'text', text });
+  setBanner(T('נשלח לכל המכשירים', 'Sent to all devices')); render(); return true;
+}
+
+// ---------- devices ----------
+function onDev(id, d) {
+  if (d.from !== id) return;
+  if (id === ME) { if (!d.online && upCount() > 0) publishDev(); return; }
+  const di = devs[id] || (devs[id] = { id, name: '', plat: '', ts: 0, online: false });
+  if (d.will) {
+    if (!di.name) { di.name = d.name || ''; di.plat = d.plat || ''; }
+    const seenTs = di.ts; setTimeout(() => { if (di.ts === seenTs && di.online) { di.online = false; render(); } }, 8000); return;
+  }
+  if ((+d.ts || 0) < di.ts) return;
+  di.ts = +d.ts || 0; di.online = !!d.online; di.name = d.name || ''; di.plat = d.plat || ''; render();
+}
+
+// ---------- pins (last-writer-wins set with tombstones) ----------
+const livePins = () => pins.filter(p => !p.del).sort((a, b) => b.ts - a.ts);
+const isPinned = t => pins.some(p => !p.del && p.text === t);
+function savePins() { localStorage.setItem('pins', JSON.stringify(pins)); render(); }
+function publishPins() { send('st/pins', { t: 'pins', items: pins }, true); }
+function pin(text) {
+  if (!text || isPinned(text)) return;
+  const live = livePins();
+  if (text.length > 16000 || live.length >= 60 || live.reduce((n, p) => n + p.text.length, 0) + text.length > 60000) return setBanner(T('לא ניתן לנעוץ: חריגה ממגבלת הנעוצים', 'Cannot pin: the pin limit was reached'));
+  pins.push({ id: randHex(6), text, ts: now(), del: false }); savePins(); publishPins();
+}
+function unpin(text) { let ch = false; for (const p of pins) if (!p.del && p.text === text) { p.del = true; p.text = ''; p.ts = now(); ch = true; } if (ch) { savePins(); publishPins(); } }
+function mergePins(d) {
+  const inc = {}; for (const o of d.items || []) if (o.id) inc[o.id] = { id: o.id, text: o.text || '', ts: +o.ts || 0, del: !!o.del };
+  let changed = false;
+  for (const p of Object.values(inc)) { const i = pins.findIndex(x => x.id === p.id); if (i < 0) { pins.push(p); changed = true; } else if (p.ts > pins[i].ts) { pins[i] = p; changed = true; } }
+  const cutoff = now() - 30 * 86400000; pins = pins.filter(p => !(p.del && p.ts < cutoff));
+  const localNewer = pins.some(p => !inc[p.id] || p.ts > inc[p.id].ts);
+  if (changed) savePins();
+  if (localNewer) publishPins();
+}
+
+// ---------- files ----------
+function localFile(file, isText) {
+  if (file.size > MAX_FILE) return setBanner(T('הקובץ גדול מ-25MB ואינו נשלח מהדפדפן.', 'The file is larger than 25 MB and cannot be sent from the browser.'));
+  const fid = randHex(8); outgoing[fid] = file;
+  const keys = Object.keys(outgoing); if (keys.length > 8) delete outgoing[keys[0]];
+  publishClip({ t: 'offer', fid, image: file.type.startsWith('image/') && !isText, text: !!isText, files: [{ name: file.name, size: file.size, mime: file.type || 'application/octet-stream' }] });
+  setBanner(T('הקובץ זמין להדבקה בכל המכשירים. השאר את הדף פתוח עד שיורד.', 'The file is ready to paste on all devices. Keep this page open until it is fetched.'));
+}
+function onOffer(d) {
+  if (!fresh(d) || !d.fid || !(d.files || []).length) return;
+  const f = d.files[0];
+  offers[d.fid] = { fid: d.fid, from: d.from, name: String(f.name || 'file').replace(/[\\/:]/g, '_'), size: +f.size || 0, mime: f.mime || '', text: !!d.text, progress: -1 };
+  setBanner(T('קובץ זמין מ-', 'A file is available from ') + nameOf(d.from));
+  if (d.text && offers[d.fid].size <= 30 * 1048576) requestFile(d.fid);      // a very large text: fetch it right away
+  render();
+}
+async function requestFile(fid) {
+  const o = offers[fid]; if (!o || rxs[fid]) return;
+  rxs[fid] = { o, total: -1, next: 0, parts: [], buf: {}, last: now(), lastNak: 0 }; o.progress = 0; render();
+  if (await send('ev', { t: 'freq', fid, idx: 0, to: o.from }, false) === 0) finishRx(fid, T('אין חיבור לשרתי הממסר', 'No connection to the relay servers'));
+}
+function finishRx(fid, err) {
+  const rx = rxs[fid]; if (!rx) return; delete rxs[fid];
+  const o = rx.o; o.progress = -1;
+  if (err) { o.error = err; setBanner(T('העברת הקובץ נכשלה: ', 'File transfer failed: ') + err); return render(); }
+  const blob = new Blob(rx.parts, { type: o.mime || 'application/octet-stream' });
+  if (o.text) {
+    blob.text().then(s => { if (s.charCodeAt(0) === 0xFEFF) s = s.slice(1); lastText = s; addHistory(s); delete offers[fid]; setBanner(T('טקסט גדול התקבל מ-', 'Large text received from ') + nameOf(o.from)); if (document.hasFocus()) toClipboard(s, true); else unseenRemote = s; render(); });
+    return;
+  }
+  o.url = URL.createObjectURL(blob); render();
+  const a = document.createElement('a'); a.href = o.url; a.download = o.name; document.body.appendChild(a); a.click(); a.remove();
+}
+function onFres(d) {
+  const rx = rxs[d.fid]; if (!rx) return; rx.last = now();
+  if (d.mode === 'err') finishRx(d.fid, d.err || '');
+  else if (d.mode === 'mqtt') { rx.total = +d.total || 0; if (rx.total === 0) finishRx(d.fid, null); }
+  else finishRx(d.fid, T('הקובץ נשלח דרך אחסון Telegram, שאינו נתמך בדפדפן. קבצים עד 4MB עוברים ישירות.', 'The file was sent through Telegram storage, which the browser cannot use. Files up to 4 MB travel directly.'));
+}
+function onChunk(d) {
+  const rx = rxs[d.fid]; if (!rx) return; const seq = +d.seq;
+  if (seq < rx.next) return;
+  rx.total = +d.total; rx.last = now(); rx.buf[seq] = unb64(d.data || '');
+  while (rx.buf[rx.next]) { rx.parts.push(rx.buf[rx.next]); delete rx.buf[rx.next]; rx.next++; }
+  const p = rx.total > 0 ? Math.floor(rx.next * 100 / rx.total) : 0; if (p !== rx.o.progress) { rx.o.progress = p; render(); }
+  if (rx.next >= rx.total) finishRx(d.fid, null);
+}
+function tickFiles() {
+  const t = now();
+  for (const fid of Object.keys(rxs)) {
+    const rx = rxs[fid];
+    if (t - rx.last > 90000) { finishRx(fid, T('תם הזמן - המכשיר המקורי לא הגיב', 'Timed out - the source device did not respond')); continue; }
+    if (rx.total <= 0 || t - rx.lastNak < 2500) continue;
+    const stalled = t - rx.last >= 2500, held = Object.keys(rx.buf).map(Number);
+    if (!stalled && held.length < 12) continue;
+    const hi = stalled ? rx.total : Math.max(0, ...held), need = [];
+    for (let s = rx.next; s < hi && need.length < 48; s++) if (!rx.buf[s]) need.push(s);
+    if (!need.length) continue;
+    rx.lastNak = t; send('ev', { t: 'fnak', fid, idx: 0, to: rx.o.from, seqs: need }, false);
+  }
+}
+const pace = {};
+async function chunkMsg(file, fid, seq, total) { return { t: 'fchunk', fid, idx: 0, seq, total, data: b64(new Uint8Array(await file.slice(seq * CHUNK, (seq + 1) * CHUNK).arrayBuffer())) }; }
+async function serveFile(d) {
+  const file = outgoing[d.fid], base = { t: 'fres', fid: d.fid, idx: +d.idx || 0, to: d.from };
+  if (!file || (+d.idx || 0) !== 0) return send('ev', Object.assign(base, { mode: 'err', err: T('הקובץ כבר לא זמין במכשיר המקורי', 'The file is no longer available on the source device') }), false);
+  const total = Math.ceil(file.size / CHUNK), key = d.fid + ':' + d.from;
+  await send('ev', Object.assign(base, { mode: 'mqtt', total, size: file.size }), false);
+  pace[key] = 30;
+  for (let seq = 0; seq < total; seq++) {
+    const m = await chunkMsg(file, d.fid, seq, total); let tries = 0;
+    while (!await sendOne('f/' + d.from, Object.assign({}, m))) { if (++tries > 40) { delete pace[key]; return; } await new Promise(r => setTimeout(r, 500)); }
+    await new Promise(r => setTimeout(r, pace[key] || 30));
+  }
+  delete pace[key];
+}
+async function serveNak(d) {
+  const file = outgoing[d.fid]; if (!file) return;
+  const key = d.fid + ':' + d.from; if (pace[key]) pace[key] = Math.min(pace[key] * 2, 400);
+  const total = Math.ceil(file.size / CHUNK), seqs = (d.seqs || []).map(Number).filter(s => s >= 0 && s < total).slice(0, 64);
+  for (const seq of seqs) { await sendOne('f/' + d.from, await chunkMsg(file, d.fid, seq, total)); await new Promise(r => setTimeout(r, 30)); }
+}
+
+// ---------- lifecycle ----------
+async function startEngine() {
+  K = await makeKeys(localStorage.getItem('code') || ''); if (!K) return false;
+  links.forEach(l => l.stop()); links = RELAYS.map(u => new Link(u)); links.forEach(l => l.start());
+  return true;
+}
+setInterval(() => { tickFiles(); }, 1000);
+setInterval(() => { if (K && upCount() > 0) publishDev(); }, 60000);
+window.addEventListener('online', () => links.forEach(l => l.kick()));
+// Back on this tab: take what arrived meanwhile; otherwise (when allowed) send what was copied on this device.
+async function onFocus() {
+  if (!K) return;
+  if (unseenRemote) { await toClipboard(unseenRemote, true); return; }
+  if (!$('autoChk').checked || !navigator.clipboard || !navigator.clipboard.readText) return;
+  try { const s = await navigator.clipboard.readText(); if (s && s !== lastText && !unseenRemote) localText(s); } catch (e) { }
+}
+window.addEventListener('focus', () => setTimeout(onFocus, 300));
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { links.forEach(l => { if (l.up && now() - l.lastRx > 32000) l.kick(); }); } });
+window.addEventListener('pagehide', () => { if (K) { send('st/dev/' + ME, devMsg(false), true); } });
+
+// ---------- UI ----------
+let bannerText = '';
+function setBanner(s) { bannerText = s; $('banner').textContent = s; }
+function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+function btn(label, fn, cls) { const b = el('button', 'small' + (cls ? ' ' + cls : ''), label); b.onclick = fn; return b; }
+function clipRow(text, pinned) {
+  const d = el('div', 'item'); d.appendChild(el('div', 'text', text.length > 600 ? text.slice(0, 600) + '…' : text));
+  const r = el('div', 'row'); r.style.marginTop = '6px';
+  r.appendChild(btn(T('העתק', 'Copy'), () => toClipboard(text, false)));
+  r.appendChild(btn(T('שלח שוב', 'Send again'), () => { lastText = ''; localText(text); }));
+  r.appendChild(btn(pinned ? T('בטל נעיצה', 'Unpin') : T('נעץ', 'Pin'), () => pinned ? unpin(text) : pin(text)));
+  d.appendChild(r); return d;
+}
+function fill(box, nodes, emptyText) { box.textContent = ''; if (!nodes.length) box.appendChild(el('div', 'sub', emptyText)); else nodes.forEach(n => box.appendChild(n)); }
+function render() {
+  document.documentElement.lang = EN ? 'en' : 'he'; document.documentElement.dir = EN ? 'ltr' : 'rtl';
+  $('langBtn').textContent = EN ? 'עברית' : 'English';
+  const paired = !!K; $('pairView').classList.toggle('hidden', paired); $('mainView').classList.toggle('hidden', !paired);
+  $('pairIntro').textContent = T('הזן את קוד הצימוד מ-Cliport במחשב או באייפון (בתפריט "כלים", "הצג קוד צימוד").', 'Enter the pairing code from Cliport on a PC or iPhone (Tools menu, "Show pairing code").');
+  $('nameIn').placeholder = T('שם למכשיר הזה, למשל: Android שלי', 'A name for this device, e.g. My Android');
+  $('pairBtn').textContent = T('התחבר', 'Connect');
+  $('pairNote').textContent = T('הקוד נשמר בדפדפן הזה בלבד ואינו נשלח לשום שרת. התוכן מוצפן מקצה לקצה, כמו באפליקציות.', 'The code is kept in this browser only and is never sent to any server. Content is end-to-end encrypted, exactly as in the apps.');
+  if (!paired) return;
+  const up = upCount(); $('dot').classList.toggle('on', up > 0);
+  $('status').textContent = up > 0 ? T(`מחובר ומסנכרן (${up}/${links.length} שרתי ממסר)`, `Connected and syncing (${up}/${links.length} relays)`) : T('מתחבר...', 'Connecting...');
+  $('textIn').placeholder = T('הקלד או הדבק כאן טקסט לשליחה לכל המכשירים', 'Type or paste text here to send it to all devices');
+  $('sendBtn').textContent = T('שלח', 'Send'); $('clipBtn').textContent = T('שלח את הלוח', 'Send clipboard'); $('fileBtn').textContent = T('שלח קובץ', 'Send a file');
+  $('autoLbl').textContent = T('שלח את הלוח אוטומטית כשחוזרים לדף הזה', 'Send the clipboard automatically when returning to this page');
+  $('pinsH').textContent = T('נעוצים', 'Pinned'); $('histH').textContent = T('היסטוריה', 'History'); $('devH').textContent = T('מכשירים בקבוצה', 'Devices in the group');
+  $('unpairBtn').textContent = T('נתק את הדפדפן הזה', 'Disconnect this browser');
+  $('foot').textContent = T('הסנכרון פועל כל עוד הדף פתוח. דפדפנים אינם מאפשרים גישה ללוח ברקע.', 'Sync runs while this page is open. Browsers do not allow clipboard access in the background.');
+  fill($('pins'), livePins().map(p => clipRow(p.text, true)), T('אין פריטים נעוצים', 'No pinned items'));
+  fill($('hist'), hist.filter(t => !isPinned(t)).map(t => clipRow(t, false)), T('עדיין אין פריטים', 'Nothing here yet'));
+  fill($('devs'), Object.values(devs).filter(d => d.name).sort((a, b) => a.name.localeCompare(b.name)).map(d => {
+    const r = el('div', 'item row'); const dot = el('span', 'dot' + (d.online ? ' on' : '')); r.appendChild(dot); r.appendChild(el('span', 'grow', d.name)); r.appendChild(el('span', 'badge', d.plat)); return r;
+  }), T('עדיין לא נראו מכשירים אחרים', 'No other devices seen yet'));
+  const box = $('offers'); box.textContent = '';
+  for (const o of Object.values(offers)) {
+    if (o.text) continue;
+    const c = el('div', 'card'); c.appendChild(el('div', '', T('קובץ מ-', 'File from ') + nameOf(o.from)));
+    c.appendChild(el('div', 'sub', `${o.name} • ${sizeText(o.size)} • ${o.mime || T('קובץ', 'file')}`));
+    if (o.progress >= 0) { const p = el('progress'); p.max = 100; p.value = o.progress; c.appendChild(p); }
+    else {
+      const r = el('div', 'row'); r.style.marginTop = '8px';
+      if (o.url) { const a = el('a', '', T('שמור שוב', 'Save again')); a.href = o.url; a.download = o.name; r.appendChild(a); }
+      else r.appendChild(btn(T('הורד', 'Download'), () => requestFile(o.fid), 'primary'));
+      r.appendChild(btn(T('הסר', 'Dismiss'), () => { delete offers[o.fid]; render(); }));
+      if (o.error) r.appendChild(el('span', 'sub', o.error));
+      c.appendChild(r);
+    }
+    box.appendChild(c);
+  }
+}
+$('langBtn').onclick = () => { EN = !EN; localStorage.setItem('lang', EN ? 'en' : 'he'); setBanner(''); render(); };
+$('pairBtn').onclick = async () => {
+  const code = $('codeIn').value.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+  if (!await makeKeys(code)) { $('pairErr').textContent = T('הקוד אינו תקין', 'The code is not valid'); return; }
+  localStorage.setItem('code', code); localStorage.setItem('name', $('nameIn').value.trim() || 'Web'); $('codeIn').value = '';
+  await startEngine(); render();
+};
+$('unpairBtn').onclick = async () => {
+  if (!confirm(T('לנתק את הדפדפן הזה מקבוצת הסנכרון?', 'Disconnect this browser from the sync group?'))) return;
+  await send('st/dev/' + ME, devMsg(false), true); links.forEach(l => l.stop()); links = []; K = null;
+  ['code', 'history', 'pins', 'lastClipTs'].forEach(k => localStorage.removeItem(k)); hist = []; pins = []; lastClipTs = 0; render();
+};
+$('sendBtn').onclick = () => { const s = $('textIn').value; if (s) { lastText = ''; if (localText(s)) $('textIn').value = ''; } };
+$('clipBtn').onclick = async () => {
+  try { const s = await navigator.clipboard.readText(); if (!s) return setBanner(T('אין טקסט בלוח', 'There is no text on the clipboard')); lastText = ''; localText(s); }
+  catch (e) { setBanner(T('הדפדפן לא אפשר לקרוא את הלוח. הדבק את הטקסט בתיבה ולחץ "שלח".', 'The browser did not allow reading the clipboard. Paste the text into the box and press "Send".')); }
+};
+$('fileBtn').onclick = () => $('fileIn').click();
+$('fileIn').onchange = () => { const f = $('fileIn').files[0]; if (f) localFile(f, false); $('fileIn').value = ''; };
+$('autoChk').checked = localStorage.getItem('auto') === '1';
+$('autoChk').onchange = () => localStorage.setItem('auto', $('autoChk').checked ? '1' : '0');
+(async () => {
+  if (!window.isSecureContext || !crypto.subtle) { document.querySelector('main').appendChild(el('p', 'card', T('הדף חייב להיפתח בכתובת https.', 'This page must be opened over https.'))); return; }
+  await startEngine(); render();
+})();
+</script>
+</body>
+</html>

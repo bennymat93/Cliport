@@ -1,4 +1,4 @@
-// Cliport v1.6 (iOS) - SwiftUI interface. Two languages (Hebrew / English) and three appearance modes (light / device / dark).
+// Cliport v2.0 (iOS) - SwiftUI interface. Two languages (Hebrew / English) and three appearance modes (light / device / dark).
 import SwiftUI
 import UIKit
 import WebKit
@@ -85,6 +85,10 @@ struct MainTabs: View {
             ClipView().tabItem { Label(L.t("לוח", "Clipboard"), systemImage: "doc.on.clipboard") }
             RdpView().tabItem { Label(L.t("מחשבים", "Computers"), systemImage: "desktopcomputer") }
             SettingsView().tabItem { Label(L.t("הגדרות", "Settings"), systemImage: "gearshape") }
+        }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            // the floating window grows out of this strip, so it has to be on screen on every tab
+            if eng.floating && Floating.shared.supported { FloatingStrip().frame(height: 22) }
         }
         .alert(L.t("לאשר הדבקת קובץ?", "Allow pasting this file?"), isPresented: Binding(get: { eng.offer != nil && eng.progress < 0 }, set: { _ in }), presenting: eng.offer) { _ in
             Button(L.t("אשר הדבקה", "Allow paste")) { eng.acceptOffer() }
@@ -311,6 +315,14 @@ struct SettingsView: View {
                     Toggle(L.t("השאר מחובר ברקע", "Stay connected in the background"), isOn: Binding(get: { eng.keepAlive }, set: { eng.keepAlive = $0 }))
                     Toggle(L.t("התראה על פריט שהגיע ברקע", "Notify about items received in the background"), isOn: Binding(get: { eng.notifyClips }, set: { eng.notifyClips = $0 }))
                     Toggle(L.t("השהה סנכרון", "Pause sync"), isOn: $eng.paused)
+                }
+                if Floating.shared.supported {
+                    Section(header: Text(L.t("חלון צף - סנכרון אוטומטי מלא (ניסיוני)", "Floating window - fully automatic sync (experimental)")),
+                            footer: Text(L.t("כשיוצאים מ-Cliport נפתח חלון צף קטן. כל עוד הוא מוצג, iOS מתייחס ל-Cliport כאפליקציה שעל המסך: מה שמועתק באייפון נשלח מיד, ומה שמגיע מהמחשב נכנס ללוח בלי לפתוח את האפליקציה. אפשר לגרור את החלון לקצה המסך כדי להסתיר אותו. כדי ש-iOS לא ישאל בכל פעם: הגדרות, Cliport, \"הדבקה מיישומים אחרים\": אפשר.",
+                                             "When you leave Cliport a small floating window opens. While it is shown, iOS treats Cliport as an on-screen app: what you copy on the iPhone is sent at once, and what arrives from a PC lands on the clipboard without opening the app. Drag the window to the screen edge to hide it. To stop iOS asking every time: Settings, Cliport, \"Paste from Other Apps\": Allow."))) {
+                        Toggle(L.t("חלון צף ביציאה מהאפליקציה", "Floating window when leaving the app"), isOn: Binding(get: { eng.floating }, set: { eng.floating = $0 }))
+                        if eng.floating { Button(L.t("פתח את החלון הצף עכשיו", "Open the floating window now")) { Floating.shared.startNow() } }
+                    }
                 }
                 Section(header: Text(L.t("טקסט גדול מאוד", "Very large text")),
                         footer: Text(L.t("טקסט מעל 180KB עובר כקובץ. כאן בוחרים איך הוא מגיע למכשיר הזה: כטקסט בלוח וגם כקובץ באפליקציית קבצים, כטקסט בלבד, או כקובץ בלבד.",

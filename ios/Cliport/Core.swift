@@ -1,10 +1,10 @@
-// Cliport v1.6 (iOS / iPadOS) - logging, helpers, end-to-end crypto. Wire-compatible with the Windows app.
+// Cliport v2.0 (iOS / iPadOS) - logging, helpers, end-to-end crypto. Wire-compatible with the Windows app.
 import Foundation
 import CryptoKit
 import CommonCrypto
 
 enum AppInfo {
-    static let version = "1.6"
+    static let version = "2.0"
     static func now() -> Int64 { Int64(Date().timeIntervalSince1970 * 1000) }
     static func randHex(_ bytes: Int) -> String {
         var b = [UInt8](repeating: 0, count: bytes)

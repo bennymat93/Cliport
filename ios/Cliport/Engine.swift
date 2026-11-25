@@ -1,4 +1,4 @@
-// Cliport v1.6 (iOS) - sync engine. Same protocol as the Windows app. All state lives on the main queue.
+// Cliport v2.0 (iOS) - sync engine. Same protocol as the Windows app. All state lives on the main queue.
 import Foundation
 import UIKit
 import CryptoKit
@@ -86,6 +86,14 @@ final class Engine: ObservableObject {
         get { ud.object(forKey: "notifyClips") == nil ? true : ud.bool(forKey: "notifyClips") }
         set { ud.set(newValue, forKey: "notifyClips"); objectWillChange.send() }
     }
+    /// Floating window (Picture in Picture): keeps Cliport "on screen" above other apps, so sync is automatic both ways.
+    var floating: Bool {
+        get { ud.bool(forKey: "floating") }
+        set { ud.set(newValue, forKey: "floating"); objectWillChange.send(); applyFloating() }
+    }
+    func applyFloating() {
+        if floating && paired && !Recovery.safeMode { Floating.shared.enable() } else { Floating.shared.disable() }
+    }
     private var seen = Set<String>()
     private var seenQ: [String] = []
     private var outgoing: [String: Offer] = [:]
@@ -169,6 +177,7 @@ final class Engine: ObservableObject {
             timer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] _ in self?.tick() }
         }
         applyKeepAlive()
+        applyFloating()
         if pathMonitor == nil {
             // Wi-Fi <-> cellular, VPN, coming back into coverage: old sockets are dead - reconnect at once
             let mon = NWPathMonitor()
@@ -206,13 +215,14 @@ final class Engine: ObservableObject {
         ud.set(k.code, forKey: "code"); start(); return true
     }
     func createGroup() { ud.set(KeyRing.newCode(), forKey: "code"); start() }
-    func unpair() { stopLinks(); keys = nil; ud.removeObject(forKey: "code"); paired = false; devStore = [:]; devices = [] }
+    func unpair() { Floating.shared.disable(); stopLinks(); keys = nil; ud.removeObject(forKey: "code"); paired = false; devStore = [:]; devices = [] }
     private func refreshUp() { let n = links.filter { $0.up }.count; if n != upCount { upCount = n } }
     private func applyKeepAlive() {
         if paired && keepAlive && !Recovery.safeMode { KeepAlive.shared.start() } else { KeepAlive.shared.stop(); Notifier.cancelDeadman() }
     }
 
     func becameActive() {
+        if isActive { return }
         isActive = true
         Recovery.markAlive(true)
         links.forEach { $0.healIfStale() }
@@ -279,7 +289,10 @@ final class Engine: ObservableObject {
 
     private func tick() {
         tickN += 1
-        if isActive { checkLocalClipboard() }
+        if isActive || Floating.shared.active { checkLocalClipboard() }     // the floating window counts as "on screen"
+        if Floating.shared.enabled {
+            Floating.shared.text = paused ? L.t("Cliport · מושהה", "Cliport · paused") : (upCount > 0 ? L.t("Cliport · מסנכרן", "Cliport · syncing") : L.t("Cliport · מתחבר", "Cliport · connecting"))
+        }
         requestMissingChunks()
         guard tickN % 4 == 0 else { return }                       // every ~6s
         links.forEach { $0.healIfStale() }
@@ -412,6 +425,21 @@ final class Engine: ObservableObject {
                 let dst = self.tempURL(name)
                 try? FileManager.default.removeItem(at: dst)
                 guard (try? FileManager.default.copyItem(at: url, to: dst)) != nil else { return }
+                var isDir: ObjCBool = false
+                if FileManager.default.fileExists(atPath: dst.path, isDirectory: &isDir), isDir.boolValue {
+                    // a folder travels as a zip file, as on Windows (the system makes the zip for "uploading")
+                    let zip = self.tempURL(name + ".zip")
+                    try? FileManager.default.removeItem(at: zip)
+                    var coordErr: NSError?
+                    var ok = false
+                    NSFileCoordinator().coordinate(readingItemAt: dst, options: [.forUploading], error: &coordErr) { z in
+                        ok = (try? FileManager.default.copyItem(at: z, to: zip)) != nil
+                    }
+                    try? FileManager.default.removeItem(at: dst)
+                    guard ok else { Log.write("folder zip failed"); return }
+                    DispatchQueue.main.async { self.localFiles([zip], image: false) }
+                    return
+                }
                 DispatchQueue.main.async { self.localFiles([dst], image: false) }
             }
         }

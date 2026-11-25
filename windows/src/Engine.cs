@@ -1,4 +1,4 @@
-// Cliport v1.6 - sync engine: protocol, pins (LWW set), device registry, file transfer.
+// Cliport v2.0 - sync engine: protocol, pins (LWW set), device registry, file transfer.
 // All state is touched on the UI thread only (network threads marshal through `post`).
 using System;
 using System.Collections.Generic;

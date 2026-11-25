@@ -1,4 +1,4 @@
-// Cliport v1.6 (iOS) - minimal MQTT 3.1.1 client over TLS (Network.framework). Everything runs on the main queue.
+// Cliport v2.0 (iOS) - minimal MQTT 3.1.1 client over TLS (Network.framework). Everything runs on the main queue.
 import Foundation
 import Network
 

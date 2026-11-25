@@ -1,4 +1,4 @@
-// Cliport v1.6 (iOS) - app entry, lifecycle, notification actions, Shortcuts actions.
+// Cliport v2.0 (iOS) - app entry, lifecycle, notification actions, Shortcuts actions.
 import SwiftUI
 import UIKit
 import UserNotifications
@@ -7,15 +7,11 @@ import AppIntents
 @main
 struct CliportApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
-    @Environment(\.scenePhase) private var phase
     @StateObject private var eng = Engine.shared
 
     var body: some Scene {
         WindowGroup {
             RootView().environmentObject(eng)
-        }
-        .onChange(of: phase) { p in
-            if p == .active { eng.becameActive() } else if p == .background { eng.enteredBackground() }
         }
     }
 }
@@ -26,6 +22,11 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         UNUserNotificationCenter.current().delegate = self
         Notifier.setup()
         Engine.shared.start()
+        // UIKit's own notifications: unlike SwiftUI's scenePhase they are also delivered for the very first activation
+        let nc = NotificationCenter.default
+        nc.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in Engine.shared.becameActive() }
+        nc.addObserver(forName: UIApplication.willResignActiveNotification, object: nil, queue: .main) { _ in Engine.shared.isActive = false }
+        nc.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { _ in Engine.shared.enteredBackground() }
         if let n = Recovery.notice { Notifier.info(L.t("Cliport - התאוששות (דרגה \(Recovery.level))", "Cliport - recovery (level \(Recovery.level))"), n) }
         return true
     }

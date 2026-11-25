@@ -35,6 +35,7 @@
     <li><a href="#keys">Keyboard shortcuts</a></li>
     <li><a href="#privacy">Privacy and security</a></li>
     <li><a href="#faq">Troubleshooting</a></li>
+    <li><a href="#web">Android, Mac and Linux: the web client</a></li>
   </ol>
 </div>
 
@@ -50,7 +51,7 @@
 </ul>
 
 <h2 id="install">2. Installing and pairing on a PC</h2>
-<p>Download one of two files from the project's downloads page: <span class="k">Cliport-v1.6-Setup.exe</span> installs the program for the current user (no administrator rights) and adds shortcuts, and <span class="k">Cliport-v1.6-portable.exe</span> runs without installation. Either way the program stays active in the system tray (next to the clock).</p>
+<p>Download one of two files from the project's downloads page: <span class="k">Cliport-v2.0-Setup.exe</span> installs the program for the current user (no administrator rights) and adds shortcuts, and <span class="k">Cliport-v2.0-portable.exe</span> runs without installation. Either way the program stays active in the system tray (next to the clock).</p>
 <div class="fig"><img src="img/en/pair.png" alt=""><div class="cap">The pairing window shown on first run</div></div>
 <ol class="legend">
   <li><b>Create a new group</b> - on the first device. A secret 26-character pairing code is created.</li>
@@ -162,13 +163,15 @@
 <h2 id="ios">11. iPhone and iPad</h2>
 <h3>Installing and pairing</h3>
 <ol>
-  <li>Install <span class="k">Cliport-v1.6-unsigned.ipa</span> with the tool you use for unsigned apps.</li>
+  <li>Install <span class="k">Cliport-v2.0-unsigned.ipa</span> with the tool you use for unsigned apps.</li>
   <li>Open Cliport, enter the pairing code and tap "Join with this code".</li>
   <li>Allow notifications.</li>
 </ol>
 <h3>From the PC to the device</h3>
 <p>Automatic while Cliport is open. When the app is in the background, iOS may block writing to the clipboard: the item is kept, a silent notification appears, and it lands on the clipboard the moment you open Cliport (tapping the notification is enough). The notification can be turned off in Settings.</p>
 <p>If something was copied both on this device and on another one while Cliport was closed, the app asks which item is newer and never overwrites either without asking.</p>
+<h3>Floating window: fully automatic sync (experimental)</h3>
+<p>In Settings, "Floating window when leaving the app". When you leave Cliport a small floating window opens, and while it is shown iOS treats Cliport as an on-screen app: what you copy on the device is sent at once, and what arrives from a PC lands on the clipboard, without opening the app. Drag the window to the screen edge to hide it. To stop iOS asking every time, set the device Settings, Cliport, "Paste from Other Apps" to Allow.</p>
 <h3>From the device to the PC</h3>
 <p>iOS does not let any app read the clipboard in the background. There are three ways around it:</p>
 <ul>
@@ -234,6 +237,15 @@
   <tr><td>Remote Desktop does not connect</td><td>Is Remote Desktop enabled on the target PC? Is Tailscale running on both sides?</td></tr>
   <tr><td>A copy on the iPhone is not sent</td><td>Open Cliport, or set up the automation described in section 11.</td></tr>
 </table>
+<h2 id="web">16. Android, Mac and Linux: the web client</h2>
+<p>Any device with a current browser can join the group without installing anything. Open <span class="k">bennymat93.github.io/Cliport</span>, enter the pairing code and name the device.</p>
+<ul>
+  <li><b>Receiving:</b> what is copied on the other devices appears on the page, and lands on the clipboard while the page is in front. Every item has a "Copy" button.</li>
+  <li><b>Sending:</b> type or paste into the box and press "Send", or press "Send clipboard". You can also turn on automatic sending of the clipboard whenever you return to the page.</li>
+  <li><b>Pins and files:</b> pins sync as usual. Files up to 25 MB are sent and received, with a "Download" button.</li>
+  <li><b>Privacy:</b> the code is kept in the browser only, and content is end-to-end encrypted exactly as in the apps.</li>
+  <li><b>Limit:</b> sync runs only while the page is open. Browsers do not allow clipboard access in the background.</li>
+</ul>
 <p class="foot">The activity log is in the data folder (Tools menu, "Open data folder and log"). "Collect diagnostic logs from all devices" in the same menu also brings the logs of the other connected devices to this PC, into the diag folder. Logs never contain clipboard content.<br>Project page: github.com/bennymat93/Cliport</p>
 
 </div>

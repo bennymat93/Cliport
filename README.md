@@ -1,4 +1,4 @@
-# Cliport v1.6
+# Cliport v2.0
 
 <p align="center"><img src="assets/logo.png" width="128" alt="Cliport"></p>
 
@@ -10,11 +10,12 @@ A real-time shared clipboard for Windows PCs, iPhone and iPad. Works from any ne
 
 | קובץ | למה |
 |---|---|
-| [Cliport-v1.6-Setup.exe](https://github.com/bennymat93/Cliport/releases/latest/download/Cliport-v1.6-Setup.exe) | Windows: התקנה למשתמש הנוכחי, עם קיצורי דרך והסרה. ללא הרשאות מנהל |
-| [Cliport-v1.6-portable.exe](https://github.com/bennymat93/Cliport/releases/latest/download/Cliport-v1.6-portable.exe) | Windows: הפעלה ללא התקנה |
-| [Cliport-v1.6-unsigned.ipa](https://github.com/bennymat93/Cliport/releases/latest/download/Cliport-v1.6-unsigned.ipa) | iPhone / iPad: קובץ לא חתום, להתקנה בכלי להתקנת אפליקציות לא חתומות |
+| [Cliport-v2.0-Setup.exe](https://github.com/bennymat93/Cliport/releases/latest/download/Cliport-v2.0-Setup.exe) | Windows: התקנה למשתמש הנוכחי, עם קיצורי דרך והסרה. ללא הרשאות מנהל |
+| [Cliport-v2.0-portable.exe](https://github.com/bennymat93/Cliport/releases/latest/download/Cliport-v2.0-portable.exe) | Windows: הפעלה ללא התקנה |
+| [Cliport-v2.0-unsigned.ipa](https://github.com/bennymat93/Cliport/releases/latest/download/Cliport-v2.0-unsigned.ipa) | iPhone / iPad: קובץ לא חתום, להתקנה בכלי להתקנת אפליקציות לא חתומות |
+| [לקוח הדפדפן](https://bennymat93.github.io/Cliport/) | Android, Mac, Linux וכל מכשיר עם דפדפן: בלי התקנה. זמין גם כקובץ [Cliport-web.html](https://github.com/bennymat93/Cliport/releases/latest/download/Cliport-web.html) |
 
-כל הקבצים נמצאים ב[עמוד ההורדות](https://github.com/bennymat93/Cliport/releases/latest). הקבצים אינם חתומים דיגיטלית, ולכן Windows עשוי להציג אזהרת SmartScreen בהפעלה הראשונה. אין גרסת Android.
+כל הקבצים נמצאים ב[עמוד ההורדות](https://github.com/bennymat93/Cliport/releases/latest). הקבצים אינם חתומים דיגיטלית, ולכן Windows עשוי להציג אזהרת SmartScreen בהפעלה הראשונה (לוחצים "מידע נוסף" ואז "הפעל בכל זאת"). ל-Android אין אפליקציה ייעודית, ומשתמשים בלקוח הדפדפן.
 
 ## מדריך למשתמש · User guide
 
@@ -78,12 +79,13 @@ A real-time shared clipboard for Windows PCs, iPhone and iPad. Works from any ne
 
 ## מגבלות ידועות
 
-- **אייפון ← מחשב אינו אוטומטי לגמרי.** iOS חוסם קריאת לוח ברקע. הלוח נשלח בפתיחת האפליקציה, או באוטומציה של "קיצורים" (מוסבר במדריך).
+- **אייפון: סנכרון ברקע.** iOS חוסם גישה ללוח לאפליקציה שאינה על המסך. הפתרון: "חלון צף" בהגדרות (ניסיוני), שמשאיר את Cliport על המסך ומסנכרן אוטומטית לשני הכיוונים. בלי החלון הצף, הלוח נשלח בפתיחת האפליקציה או באוטומציה של "קיצורים", ופריט שמגיע ברקע נכנס ללוח בפתיחת Cliport, עם התראה שקטה.
 - **אישור קובץ ב־iOS** מופיע כשהקובץ מוצע, ולא ברגע ההדבקה.
 - **שרתי הממסר הציבוריים** ניתנים ללא התחייבות זמינות. לשימוש קריטי מומלץ להוסיף שרת פרטי.
-- **תיקיות** נשלחות כקובץ zip, עד 500MB. באייפון תיקיות אינן נשלחות.
-- **מחשב ← אייפון כשהאפליקציה ברקע:** iOS עלול לחסום כתיבה ללוח ברקע. הפריט נשמר ונכנס ללוח בפתיחת Cliport, עם התראה שקטה.
-- **נגישות:** שורות הרשימות נחשפות לקוראי מסך שעובדים עם MSAA (כמו NVDA). ב־Narrator, שעובד עם UI Automation, השורות עדיין אינן מוקראות.
+- **תיקיות** נשלחות כקובץ zip (ב־Windows עד 500MB; מעל 25MB נדרש אחסון Telegram).
+- **לקוח הדפדפן** פועל רק כשהדף פתוח, ואינו מקבל קבצים שנשלחו דרך אחסון Telegram.
+- **קבצים לא חתומים:** חתימה דיגיטלית דורשת תעודה בתשלום, ולכן אזהרת SmartScreen נשארת.
+- **שולחן עבודה מרוחק בין רשתות** דורש Tailscale (חינמי) בכל המכשירים.
 
 ## מה נבדק
 

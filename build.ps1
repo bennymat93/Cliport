@@ -20,10 +20,12 @@ if (-not (Test-Path $logo)) {
     $cur.Save($logo, [Drawing.Imaging.ImageFormat]::Png); $cur.Dispose(); $src.Dispose()
 }
 
+$wpf = "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\WPF"
 $cscArgs = @('/nologo', '/target:winexe', '/optimize+', '/platform:anycpu', '/codepage:65001', '/warn:3',
     "/out:$out\Cliport.exe",
     '/r:System.dll', '/r:System.Core.dll', '/r:System.Drawing.dll', '/r:System.Windows.Forms.dll',
     '/r:System.Web.Extensions.dll', '/r:System.Security.dll', '/r:System.IO.Compression.dll', '/r:System.IO.Compression.FileSystem.dll',
+    "/r:$wpf\UIAutomationProvider.dll", "/r:$wpf\UIAutomationTypes.dll", "/r:$wpf\WindowsBase.dll",   # screen-reader support for the hand-drawn lists
     "/resource:$logo,logo.png")
 if (Test-Path $icon) { $cscArgs += "/win32icon:$icon" }
 # the user guide is embedded in the program (built by docs\build-guide.ps1)

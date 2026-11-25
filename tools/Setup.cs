@@ -14,12 +14,12 @@ using Microsoft.Win32;
 
 [assembly: AssemblyTitle("Cliport Setup")]
 [assembly: AssemblyProduct("Cliport")]
-[assembly: AssemblyVersion("1.6.0.0")]
-[assembly: AssemblyFileVersion("1.6.0.0")]
+[assembly: AssemblyVersion("2.0.0.0")]
+[assembly: AssemblyFileVersion("2.0.0.0")]
 
 static class Setup
 {
-    const string Version = "1.6";
+    const string Version = "2.0";
     static bool he = CultureInfo.CurrentUICulture.TwoLetterISOLanguageName == "he";
     static string T(string hebrew, string english) { return he ? hebrew : english; }
     static string Name = "Cliport";                                   // "/test" installs under a throw-away name, with no shortcuts on the desktop and no start-up entry
