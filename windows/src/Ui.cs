@@ -1,4 +1,4 @@
-// Cliport v1.5 - user interface: themes (light / device / dark), two languages, menu, toolbar, pages, dialogs, entry point.
+// Cliport v1.6 - user interface: themes (light / device / dark), two languages, menu, toolbar, pages, dialogs, entry point.
 using System;
 using System.Collections;
 using System.Collections.Generic;

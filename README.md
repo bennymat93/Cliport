@@ -1,4 +1,4 @@
-# Cliport v1.5
+# Cliport v1.6
 
 <p align="center"><img src="assets/logo.png" width="128" alt="Cliport"></p>
 
@@ -10,9 +10,9 @@ A real-time shared clipboard for Windows PCs, iPhone and iPad. Works from any ne
 
 | קובץ | למה |
 |---|---|
-| [Cliport-v1.5-Setup.exe](https://github.com/bennymat93/Cliport/releases/latest/download/Cliport-v1.5-Setup.exe) | Windows: התקנה למשתמש הנוכחי, עם קיצורי דרך והסרה. ללא הרשאות מנהל |
-| [Cliport-v1.5-portable.exe](https://github.com/bennymat93/Cliport/releases/latest/download/Cliport-v1.5-portable.exe) | Windows: הפעלה ללא התקנה |
-| [Cliport-v1.5-unsigned.ipa](https://github.com/bennymat93/Cliport/releases/latest/download/Cliport-v1.5-unsigned.ipa) | iPhone / iPad: קובץ לא חתום, להתקנה בכלי להתקנת אפליקציות לא חתומות |
+| [Cliport-v1.6-Setup.exe](https://github.com/bennymat93/Cliport/releases/latest/download/Cliport-v1.6-Setup.exe) | Windows: התקנה למשתמש הנוכחי, עם קיצורי דרך והסרה. ללא הרשאות מנהל |
+| [Cliport-v1.6-portable.exe](https://github.com/bennymat93/Cliport/releases/latest/download/Cliport-v1.6-portable.exe) | Windows: הפעלה ללא התקנה |
+| [Cliport-v1.6-unsigned.ipa](https://github.com/bennymat93/Cliport/releases/latest/download/Cliport-v1.6-unsigned.ipa) | iPhone / iPad: קובץ לא חתום, להתקנה בכלי להתקנת אפליקציות לא חתומות |
 
 כל הקבצים נמצאים ב[עמוד ההורדות](https://github.com/bennymat93/Cliport/releases/latest). הקבצים אינם חתומים דיגיטלית, ולכן Windows עשוי להציג אזהרת SmartScreen בהפעלה הראשונה. אין גרסת Android.
 
