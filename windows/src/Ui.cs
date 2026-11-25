@@ -224,7 +224,43 @@ namespace Cliport
             DrawMode = DrawMode.OwnerDrawFixed; BorderStyle = BorderStyle.None; IntegralHeight = false; ItemHeight = Ux.S(52); Dock = DockStyle.Fill;
         }
         public Card Selected { get { var c = SelectedItem as Card; return c != null && !c.Hint ? c : null; } }
-        protected override CreateParams CreateParams { get { var cp = base.CreateParams; cp.Style |= 0x0040; return cp; } }     // LBS_HASSTRINGS: rows are readable by screen readers
+        // Screen readers: the rows are drawn by hand, so each one is described explicitly.
+        protected override AccessibleObject CreateAccessibilityInstance() { return new ListAcc(this); }
+        sealed class ListAcc : ControlAccessibleObject
+        {
+            readonly CardList o;
+            public ListAcc(CardList owner) : base(owner) { o = owner; }
+            public override AccessibleRole Role { get { return AccessibleRole.List; } }
+            public override int GetChildCount() { return o.Items.Count; }
+            public override AccessibleObject GetChild(int index) { return index >= 0 && index < o.Items.Count ? new RowAcc(o, this, index) : null; }
+            public override AccessibleObject GetSelected() { return GetChild(o.SelectedIndex); }
+            public override AccessibleObject GetFocused() { return o.Focused ? GetChild(o.SelectedIndex) : null; }
+            public override AccessibleObject HitTest(int x, int y) { int i = o.IndexFromPoint(o.PointToClient(new Point(x, y))); return i >= 0 ? GetChild(i) : this; }
+        }
+        sealed class RowAcc : AccessibleObject
+        {
+            readonly CardList o; readonly AccessibleObject parent; readonly int i;
+            public RowAcc(CardList owner, AccessibleObject p, int index) { o = owner; parent = p; i = index; }
+            Card C { get { return i < o.Items.Count ? o.Items[i] as Card : null; } }
+            public override string Name { get { var c = C; return c == null ? "" : c.Title; } set { } }
+            public override string Value { get { var c = C; return c == null ? "" : c.Sub; } set { } }
+            public override string Description { get { var c = C; return c == null ? "" : c.Badge; } }
+            public override AccessibleRole Role { get { return AccessibleRole.ListItem; } }
+            public override AccessibleObject Parent { get { return parent; } }
+            public override Rectangle Bounds { get { return i < o.Items.Count ? o.RectangleToScreen(o.GetItemRectangle(i)) : Rectangle.Empty; } }
+            public override AccessibleStates State
+            {
+                get
+                {
+                    var s = AccessibleStates.Selectable | AccessibleStates.Focusable;
+                    if (o.SelectedIndex == i) { s |= AccessibleStates.Selected; if (o.Focused) s |= AccessibleStates.Focused; }
+                    return s;
+                }
+            }
+            public override string DefaultAction { get { return L.T("בחר", "Select"); } }
+            public override void DoDefaultAction() { if (i < o.Items.Count) o.SelectedIndex = i; }
+            public override void Select(AccessibleSelection flags) { if (i < o.Items.Count) { o.SelectedIndex = i; o.Focus(); } }
+        }
         protected override void OnDrawItem(DrawItemEventArgs e)
         {
             if (e.Index < 0 || e.Index >= Items.Count) return;

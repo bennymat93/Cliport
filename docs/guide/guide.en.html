@@ -167,7 +167,8 @@
   <li>Allow notifications.</li>
 </ol>
 <h3>From the PC to the device</h3>
-<p>Automatic. When "Stay connected in the background" is on, what you copy on a PC lands on the device's clipboard.</p>
+<p>Automatic while Cliport is open. When the app is in the background, iOS may block writing to the clipboard: the item is kept, a silent notification appears, and it lands on the clipboard the moment you open Cliport (tapping the notification is enough). The notification can be turned off in Settings.</p>
+<p>If something was copied both on this device and on another one while Cliport was closed, the app asks which item is newer and never overwrites either without asking.</p>
 <h3>From the device to the PC</h3>
 <p>iOS does not let any app read the clipboard in the background. There are three ways around it:</p>
 <ul>
@@ -233,7 +234,7 @@
   <tr><td>Remote Desktop does not connect</td><td>Is Remote Desktop enabled on the target PC? Is Tailscale running on both sides?</td></tr>
   <tr><td>A copy on the iPhone is not sent</td><td>Open Cliport, or set up the automation described in section 11.</td></tr>
 </table>
-<p class="foot">The activity log is in the data folder (Tools menu, "Open data folder and log").<br>Project page: github.com/bennymat93/Cliport</p>
+<p class="foot">The activity log is in the data folder (Tools menu, "Open data folder and log"). "Collect diagnostic logs from all devices" in the same menu also brings the logs of the other connected devices to this PC, into the diag folder. Logs never contain clipboard content.<br>Project page: github.com/bennymat93/Cliport</p>
 
 </div>
 </body>
