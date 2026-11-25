@@ -1,5 +1,5 @@
 # Publishes the web client (web/index.html) to GitHub Pages: https://<owner>.github.io/<repo>/
-# If the first run fails at "Configure Pages", open the repository's Settings -> Pages, choose "GitHub Actions" as the source, and re-run.
+# Needs Settings -> Pages -> Source "GitHub Actions" in the repository (a one-time choice by the owner).
 name: Publish web client
 on:
   workflow_dispatch:
