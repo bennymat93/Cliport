@@ -1,0 +1,85 @@
+# Runs the iOS app on a simulator: unit tests, live tests against the public relays, and a walk through every screen.
+# Results (summary, full log, screenshots) are attached to the "ci" pre-release:
+#   https://github.com/<owner>/<repo>/releases/tag/ci
+name: Test iOS app on a simulator
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "ios/**"
+      - ".github/workflows/test-ios.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: macos-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        working-directory: ios
+        run: xcodegen generate
+
+      - name: Pick a simulator
+        id: sim
+        run: |
+          UDID=$(xcrun simctl list devices available -j | python3 -c "
+          import json, sys
+          d = json.load(sys.stdin)['devices']
+          c = [(k, x) for k, v in d.items() if 'iOS' in k for x in v if x['name'].startswith('iPhone') and 'SE' not in x['name']]
+          c.sort(key=lambda t: [int(n) for n in t[0].split('iOS-')[1].split('-')])
+          print(c[-1][0].split('.')[-1], c[-1][1]['name'], file=sys.stderr)
+          print(c[-1][1]['udid'])")
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+          xcrun simctl boot "$UDID" || true
+          xcodebuild -version
+
+      - name: Run the tests
+        working-directory: ios
+        run: |
+          set -o pipefail
+          xcodebuild test -project Cliport.xcodeproj -scheme Cliport \
+            -destination "id=${{ steps.sim.outputs.udid }}" \
+            -derivedDataPath buildsim -resultBundlePath TestResults.xcresult \
+            CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=- \
+            2>&1 | tee test.log | grep -E "Test Case|Test Suite .*(passed|failed)|error:|XCTAssert|APP STATE|RELAY |RE-REQUESTING|Executed|\*\* TEST" || true
+          grep -q "\*\* TEST SUCCEEDED \*\*" test.log
+
+      - name: Collect results
+        if: always()
+        working-directory: ios
+        run: |
+          mkdir -p out
+          { echo "commit $GITHUB_SHA"; xcodebuild -version | tr '\n' ' '; echo; \
+            grep -E "Test Case|error:|XCTAssert|APP STATE|RELAY |RE-REQUESTING|Executed|\*\* TEST|failed -" test.log | sed "s#$PWD/##g" | tail -n 250; } > out/ios-test-summary.txt || true
+          tail -n 4000 test.log > out/ios-test-log.txt || true
+          xcrun xcresulttool export attachments --path TestResults.xcresult --output-path shots || true
+          if [ -f shots/manifest.json ]; then
+            python3 - <<'EOF'
+          import json, os, shutil
+          os.makedirs('named', exist_ok=True)
+          for test in json.load(open('shots/manifest.json')):
+              for a in test.get('attachments', []):
+                  src = os.path.join('shots', a['exportedFileName'])
+                  name = a.get('suggestedHumanReadableName') or a['exportedFileName']
+                  base = name.split('_')[0]
+                  if os.path.exists(src):
+                      shutil.copy(src, os.path.join('named', base + os.path.splitext(src)[1]))
+          EOF
+            (cd named && zip -q ../out/ios-screenshots.zip * && cp en-2-clipboard-connected.* ../out/ 2>/dev/null; cp he-2-clipboard-connected.* ../out/ 2>/dev/null; cp en-4-settings.* ../out/ 2>/dev/null; cp he-5-settings.* ../out/ 2>/dev/null; cp en-1-pairing.* ../out/ 2>/dev/null; true)
+          fi
+          ls -la out
+
+      - name: Publish results
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view ci >/dev/null 2>&1 || gh release create ci --prerelease --title "Automated test results" --notes "Latest results of the automated iOS simulator tests: summary, log and screenshots. Not a download for users."
+          gh release upload ci ios/out/* --clobber

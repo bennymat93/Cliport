@@ -49,3 +49,40 @@ targets:
         CODE_SIGNING_REQUIRED: "NO"
         CODE_SIGN_IDENTITY: ""
         ENABLE_BITCODE: "NO"
+  # Automated tests (simulator only; see .github/workflows/test-ios.yml). They are not part of the IPA.
+  CliportTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - CliportTests
+    dependencies:
+      - target: Cliport
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.cliport.tests
+        GENERATE_INFOPLIST_FILE: "YES"
+        SWIFT_VERSION: "5.0"
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Cliport.app/Cliport"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+  CliportUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - CliportUITests
+    dependencies:
+      - target: Cliport
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.cliport.uitests
+        GENERATE_INFOPLIST_FILE: "YES"
+        SWIFT_VERSION: "5.0"
+        TEST_TARGET_NAME: Cliport
+schemes:
+  Cliport:
+    build:
+      targets:
+        Cliport: all
+    test:
+      targets:
+        - CliportTests
+        - CliportUITests
