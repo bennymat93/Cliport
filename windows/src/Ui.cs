@@ -226,9 +226,34 @@ namespace Cliport
         public Card Selected { get { var c = SelectedItem as Card; return c != null && !c.Hint ? c : null; } }
         // Screen readers: the rows are drawn by hand, so each one is described explicitly.
         // UI Automation clients (Narrator) are answered by UiaList; MSAA clients (NVDA, JAWS) by ListAcc below.
-        UiaList uia;
+        UiaList uia; bool uiaDirty;
+        /// <summary>Changes whenever the rows change, so screen readers never mix up old and new rows.</summary>
+        public int Gen;
         protected override void WndProc(ref Message m)
         {
+            if (m.Msg >= 0x0180 && m.Msg <= 0x0184 && m.Msg != 0x0183)          // LB_ADDSTRING, LB_INSERTSTRING, LB_DELETESTRING, LB_RESETCONTENT
+            {
+                Gen++;
+                if (uia != null && !uiaDirty && IsHandleCreated)
+                {
+                    uiaDirty = true;
+                    try
+                    {
+                        BeginInvoke((Action)delegate
+                        {
+                            uiaDirty = false;
+                            try
+                            {
+                                if (System.Windows.Automation.Provider.AutomationInteropProvider.ClientsAreListening)
+                                    System.Windows.Automation.Provider.AutomationInteropProvider.RaiseStructureChangedEvent(uia,
+                                        new System.Windows.Automation.StructureChangedEventArgs(System.Windows.Automation.StructureChangeType.ChildrenInvalidated, new[] { 0 }));
+                            }
+                            catch { }
+                        });
+                    }
+                    catch { uiaDirty = false; }
+                }
+            }
             if (m.Msg == 0x003D && (int)(long)m.LParam == -25)          // WM_GETOBJECT, UiaRootObjectId
             {
                 try

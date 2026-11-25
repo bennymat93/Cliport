@@ -814,7 +814,9 @@ final class Engine: ObservableObject {
             fail(L.t("הקובץ כבר לא זמין במכשיר המקורי", "The file is no longer available on the source device")); return
         }
         let size = o.files[idx].size
-        if tgReady, size > 4 * 1024 * 1024, let k = keys {       // Telegram only where it helps: big files
+        let direct = J.b(d, "direct")       // the receiver cannot download from Telegram (a browser: no CORS on Telegram's file server)
+        if direct && size > Engine.maxRelayFile { fail(L.t("הקובץ גדול מ-25MB, ולקוח הדפדפן מקבל קבצים עד 25MB בלבד.", "The file is larger than 25 MB, and the web client receives files up to 25 MB only.")); return }
+        if tgReady, !direct, size > 4 * 1024 * 1024, let k = keys {       // Telegram only where it helps: big files
             let token = tgToken, chat = tgChat
             Task {
                 do {

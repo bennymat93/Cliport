@@ -1,4 +1,4 @@
-// Cliport v2.0 - Windows integration: clipboard window, Telegram storage, RDP, crash recovery.
+﻿// Cliport v2.0 - Windows integration: clipboard window, Telegram storage, RDP, crash recovery.
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -299,31 +299,16 @@ namespace Cliport
                     string hit = null;
                     foreach (string a in addrs) if (Probe(a, port)) { hit = a; break; }
                     if (hit == null) { fail(L.T("לא ניתן להגיע אל " + name + ". ודא שהמחשב דולק, ש-Remote Desktop מופעל בו, ושבשני המחשבים פועל Tailscale (לחיבור בין רשתות שונות).", "Cannot reach " + name + ". Make sure the PC is on, Remote Desktop is enabled on it, and Tailscale is running on both computers (needed across different networks).")); return; }
-                    string dir = App.PathOf("rdp"); Directory.CreateDirectory(dir);
-                    string file = Path.Combine(dir, string.Join("_", name.Split(Path.GetInvalidFileNameChars())) + ".rdp");
-                    var sb = new StringBuilder();
-                    sb.AppendLine("full address:s:" + hit + ":" + port);
-                    if (!string.IsNullOrEmpty(user)) sb.AppendLine("username:s:" + user);
-                    sb.AppendLine("screen mode id:i:2");
-                    sb.AppendLine("session bpp:i:32");
-                    sb.AppendLine("smart sizing:i:1");
-                    sb.AppendLine("dynamic resolution:i:1");
-                    sb.AppendLine("connection type:i:7");
-                    sb.AppendLine("networkautodetect:i:1");
-                    sb.AppendLine("bandwidthautodetect:i:1");
-                    sb.AppendLine("compression:i:1");
-                    sb.AppendLine("autoreconnection enabled:i:1");
-                    sb.AppendLine("autoreconnect max retries:i:50");
-                    sb.AppendLine("allow font smoothing:i:1");
-                    sb.AppendLine("allow desktop composition:i:1");
-                    sb.AppendLine("videoplaybackmode:i:1");
-                    sb.AppendLine("audiomode:i:0");
-                    sb.AppendLine("redirectclipboard:i:1");
-                    sb.AppendLine("authentication level:i:2");
-                    sb.AppendLine("enablecredsspsupport:i:1");
-                    sb.AppendLine("keyboardhook:i:2");
-                    File.WriteAllText(file, sb.ToString(), Encoding.Unicode);
-                    Process.Start("mstsc.exe", "\"" + file + "\"");
+                    // Started with /v instead of an .rdp file: Windows shows an "unknown publisher" warning for every unsigned
+                    // .rdp file, and the client's own defaults already give automatic quality, reconnection, clipboard and NLA.
+                    try
+                    {
+                        // the client reads the user-name suggestion for a host from here
+                        using (var k = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(@"Software\Microsoft\Terminal Server Client\Servers\" + hit))
+                            if (!string.IsNullOrEmpty(user) && k.GetValue("UsernameHint") == null) k.SetValue("UsernameHint", user);
+                    }
+                    catch { }
+                    Process.Start("mstsc.exe", "/v:" + hit + ":" + port + " /f");
                     Log.Write("rdp connect to " + name + " via " + hit);
                 }
                 catch (Exception e) { fail(L.T("חיבור RDP נכשל: ", "Remote Desktop connection failed: ") + e.Message); }

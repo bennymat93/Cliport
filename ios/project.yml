@@ -55,6 +55,7 @@ targets:
     platform: iOS
     sources:
       - CliportTests
+      - TestSupport
     dependencies:
       - target: Cliport
     settings:
@@ -62,6 +63,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.cliport.tests
         GENERATE_INFOPLIST_FILE: "YES"
         SWIFT_VERSION: "5.0"
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) HOSTED"
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Cliport.app/Cliport"
         BUNDLE_LOADER: "$(TEST_HOST)"
   CliportUITests:
@@ -69,6 +71,10 @@ targets:
     platform: iOS
     sources:
       - CliportUITests
+      - TestSupport
+      # the protocol pieces, compiled into the test runner so it can act as a second device
+      - path: Cliport/Core.swift
+      - path: Cliport/Mqtt.swift
     dependencies:
       - target: Cliport
     settings:

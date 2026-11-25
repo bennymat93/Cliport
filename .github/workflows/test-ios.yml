@@ -48,7 +48,7 @@ jobs:
             -destination "id=${{ steps.sim.outputs.udid }}" \
             -derivedDataPath buildsim -resultBundlePath TestResults.xcresult \
             CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=- \
-            2>&1 | tee test.log | grep -E "Test Case|Test Suite .*(passed|failed)|error:|XCTAssert|APP STATE|RELAY |RE-REQUESTING|Executed|\*\* TEST" || true
+            2>&1 | tee test.log | grep -E "Test Case|Test Suite .*(passed|failed)|error:|XCTAssert|APP STATE|RELAY |CLIPBOARD |RE-REQUESTING|Executed|\*\* TEST" || true
           grep -q "\*\* TEST SUCCEEDED \*\*" test.log
 
       - name: Collect results
@@ -57,7 +57,7 @@ jobs:
         run: |
           mkdir -p out
           { echo "commit $GITHUB_SHA"; xcodebuild -version | tr '\n' ' '; echo; \
-            grep -E "Test Case|error:|XCTAssert|APP STATE|RELAY |RE-REQUESTING|Executed|\*\* TEST|failed -" test.log | sed "s#$PWD/##g" | tail -n 250; } > out/ios-test-summary.txt || true
+            grep -E "Test Case|error:|XCTAssert|APP STATE|RELAY |CLIPBOARD |RE-REQUESTING|Executed|\*\* TEST|failed -" test.log | sed "s#$PWD/##g" | tail -n 250; } > out/ios-test-summary.txt || true
           tail -n 4000 test.log > out/ios-test-log.txt || true
           xcrun xcresulttool export attachments --path TestResults.xcresult --output-path shots || true
           if [ -f shots/manifest.json ]; then
@@ -72,7 +72,7 @@ jobs:
                   if os.path.exists(src):
                       shutil.copy(src, os.path.join('named', base + os.path.splitext(src)[1]))
           EOF
-            (cd named && zip -q ../out/ios-screenshots.zip * && cp en-2-clipboard-connected.* ../out/ 2>/dev/null; cp he-2-clipboard-connected.* ../out/ 2>/dev/null; cp en-4-settings.* ../out/ 2>/dev/null; cp he-5-settings.* ../out/ 2>/dev/null; cp en-1-pairing.* ../out/ 2>/dev/null; true)
+            (cd named && zip -q ../out/ios-screenshots.zip * && cp en-2-clipboard-connected.* ../out/ 2>/dev/null; cp he-2-clipboard-connected.* ../out/ 2>/dev/null; cp en-4-settings.* ../out/ 2>/dev/null; cp he-5-settings.* ../out/ 2>/dev/null; cp en-1-pairing.* ../out/ 2>/dev/null; cp live-*.* ../out/ 2>/dev/null; true)
           fi
           ls -la out
 

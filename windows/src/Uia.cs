@@ -1,4 +1,4 @@
-// Cliport v2.0 - UI Automation for the hand-drawn lists, so Narrator and other UI Automation screen readers read the rows.
+﻿// Cliport v2.0 - UI Automation for the hand-drawn lists, so Narrator and other UI Automation screen readers read the rows.
 using System;
 using System.Collections.Generic;
 using System.Drawing;
@@ -54,9 +54,10 @@ namespace Cliport
     [ComVisible(true)]
     sealed class UiaRow : IRawElementProviderFragment, ISelectionItemProvider
     {
-        readonly CardList o; readonly UiaList root; readonly int i;
-        public UiaRow(CardList owner, UiaList list, int index) { o = owner; root = list; i = index; }
-        Card C { get { return i < o.Items.Count ? o.Items[i] as Card : null; } }
+        readonly CardList o; readonly UiaList root; readonly int i, gen;
+        public UiaRow(CardList owner, UiaList list, int index) { o = owner; root = list; i = index; gen = owner.Gen; }
+        // A row object describes the list as it was when the object was made; after the list is refilled it is gone.
+        Card C { get { if (gen != o.Gen) throw new ElementNotAvailableException(); return i < o.Items.Count ? o.Items[i] as Card : null; } }
         public static System.Windows.Rect ToRect(Rectangle r) { return new System.Windows.Rect(r.X, r.Y, r.Width, r.Height); }
 
         public ProviderOptions ProviderOptions { get { return ProviderOptions.ServerSideProvider | ProviderOptions.UseComThreading; } }
@@ -81,7 +82,7 @@ namespace Cliport
             if (d == NavigateDirection.PreviousSibling) return root.Row(i - 1);
             return null;
         }
-        public int[] GetRuntimeId() { return new[] { AutomationInteropProvider.AppendRuntimeId, i }; }
+        public int[] GetRuntimeId() { return new[] { AutomationInteropProvider.AppendRuntimeId, gen, i }; }
         public System.Windows.Rect BoundingRectangle { get { return i < o.Items.Count ? ToRect(o.RectangleToScreen(o.GetItemRectangle(i))) : System.Windows.Rect.Empty; } }
         public IRawElementProviderSimple[] GetEmbeddedFragmentRoots() { return null; }
         public void SetFocus() { Select(); o.Focus(); }

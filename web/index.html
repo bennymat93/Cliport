@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#4f46e5">
 <title>Cliport Web</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%234f46e5'/%3E%3Crect x='18' y='14' width='28' height='38' rx='5' fill='%23fff'/%3E%3Crect x='25' y='9' width='14' height='10' rx='3' fill='%23c7d2fe'/%3E%3Cpath d='M24 30h16M24 37h16M24 44h10' stroke='%234f46e5' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
 <!-- Cliport v2.0 - web client. One file, no server of its own: it talks to the same relays as the apps, with the same end-to-end encryption.
      Works in any current browser (Android, macOS, Linux, ChromeOS, Windows). The pairing code never leaves this browser. -->
 <style>
@@ -105,9 +106,10 @@ async function makeKeys(code) {
     topic: 'sc1/' + hex((await derive('topic')).subarray(0, 16))
   };
 }
-async function seal(obj) {
-  let plain = enc.encode(JSON.stringify(obj)), ver = 1;
-  if (plain.length >= 200 && typeof CompressionStream === 'function') {
+const seal = obj => sealBytes(enc.encode(JSON.stringify(obj)), true);
+async function sealBytes(plain, compress) {
+  let ver = 1;
+  if (compress && plain.length >= 200 && typeof CompressionStream === 'function') {
     try { const z = await pipe(new CompressionStream('deflate-raw'), plain); if (z.length < plain.length * 0.9) { plain = z; ver = 2; } } catch (e) { }
   }
   const iv = crypto.getRandomValues(new Uint8Array(16));
@@ -117,14 +119,32 @@ async function seal(obj) {
   const out = new Uint8Array(body.length + 32); out.set(body); out.set(tag, body.length);
   return out;
 }
-async function unseal(env) {
+const unseal = async env => { const b = await unsealBytes(env); return b ? JSON.parse(dec.decode(b)) : null; };
+async function unsealBytes(env) {
   if (env.length < 65 || (env[0] !== 1 && env[0] !== 2)) return null;
   const n = env.length - 32, body = env.subarray(0, n);
   if (!await crypto.subtle.verify('HMAC', K.mac, env.subarray(n), body)) return null;
   let plain = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-CBC', iv: env.subarray(1, 17) }, K.enc, env.subarray(17, n)));
   if (env[0] === 2) plain = await pipe(new DecompressionStream('deflate-raw'), plain);
-  return JSON.parse(dec.decode(plain));
+  return plain;
 }
+
+// ---------- Telegram storage for large files (optional; the group shares one bot token) ----------
+// A browser can upload to Telegram but not download: Telegram's file server sends no CORS headers. So this client
+// sends big files through Telegram and asks other devices to send to it directly ("direct" in the request).
+const TG_PART = 18 * 1024 * 1024, TG_FROM = 4 * 1024 * 1024;
+let cfg = JSON.parse(localStorage.getItem('cfg') || '{"cts":0}');
+const tgReady = () => !!(cfg.tgToken && cfg.tgChat);
+async function tgUpload(bytes, name) {
+  const form = new FormData();
+  form.append('chat_id', cfg.tgChat); form.append('disable_notification', 'true');
+  form.append('document', new Blob([bytes], { type: 'application/octet-stream' }), name);
+  const r = await (await fetch(`https://api.telegram.org/bot${cfg.tgToken}/sendDocument`, { method: 'POST', body: form })).json();
+  const id = r && r.result && r.result.document && r.result.document.file_id;
+  if (!id) throw new Error('Telegram: ' + ((r && r.description) || 'no file_id'));
+  return id;
+}
+
 
 // ---------- MQTT 3.1.1 over WebSocket (QoS 0) ----------
 const str = s => { const b = enc.encode(s); return [b.length >> 8, b.length & 255, ...b]; };
@@ -209,6 +229,7 @@ function onLinkState(l) {
     publishDev();
     if (pendingClip) publishClip(pendingClip); else if (lastOut && lastOut.ts === lastClipTs) send('st/clip', Object.assign({}, lastOut), true);
     if (pins.length) publishPins();
+    if (cfg.cts > 0) publishCfg();
   } else if (upCount() > 0) publishDev();
 }
 let wireQ = Promise.resolve();
@@ -222,7 +243,7 @@ function onWire(topic, payload) {       // one at a time, in arrival order
 function handle(sub, d) {
   if (sub.startsWith('st/dev/')) return onDev(sub.slice(7), d);
   if (sub === 'st/pins') return mergePins(d);
-  if (sub === 'st/cfg') return;
+  if (sub === 'st/cfg') return mergeCfg(d);
   if (d.from === ME) return;
   if (sub === 'ev' || sub.startsWith('f/')) { if (seen.has(d.id)) return; seen.add(d.id); seenQ.push(d.id); if (seenQ.length > 1500) seen.delete(seenQ.shift()); }
   switch (d.t) {
@@ -262,6 +283,14 @@ function localText(text) {
   setBanner(T('נשלח לכל המכשירים', 'Sent to all devices')); render(); return true;
 }
 
+// ---------- shared settings (Telegram storage, private relays): the newest wins on every device ----------
+function publishCfg() { send('st/cfg', { t: 'cfg', tgToken: cfg.tgToken || '', tgChat: cfg.tgChat || '', relays: cfg.relays || '', cts: cfg.cts }, true); }
+function mergeCfg(d) {
+  const cts = +d.cts || 0;
+  if (cts > cfg.cts) { cfg = { tgToken: d.tgToken || '', tgChat: String(d.tgChat || ''), relays: d.relays || '', cts }; localStorage.setItem('cfg', JSON.stringify(cfg)); render(); }
+  else if (cts < cfg.cts) publishCfg();
+}
+
 // ---------- devices ----------
 function onDev(id, d) {
   if (d.from !== id) return;
@@ -299,7 +328,8 @@ function mergePins(d) {
 
 // ---------- files ----------
 function localFile(file, isText) {
-  if (file.size > MAX_FILE) return setBanner(T('הקובץ גדול מ-25MB ואינו נשלח מהדפדפן.', 'The file is larger than 25 MB and cannot be sent from the browser.'));
+  if (file.size > MAX_FILE && !tgReady()) return setBanner(T('הקובץ גדול מ-25MB. כדי לשלוח קבצים גדולים מגדירים אחסון Telegram באחת האפליקציות.', 'The file is larger than 25 MB. To send large files, set up Telegram storage in one of the apps.'));
+  if (file.size > 2000 * 1024 * 1024) return setBanner(T('הקובץ גדול מדי.', 'The file is too large.'));
   const fid = randHex(8); outgoing[fid] = file;
   const keys = Object.keys(outgoing); if (keys.length > 8) delete outgoing[keys[0]];
   publishClip({ t: 'offer', fid, image: file.type.startsWith('image/') && !isText, text: !!isText, files: [{ name: file.name, size: file.size, mime: file.type || 'application/octet-stream' }] });
@@ -316,7 +346,7 @@ function onOffer(d) {
 async function requestFile(fid) {
   const o = offers[fid]; if (!o || rxs[fid]) return;
   rxs[fid] = { o, total: -1, next: 0, parts: [], buf: {}, last: now(), lastNak: 0 }; o.progress = 0; render();
-  if (await send('ev', { t: 'freq', fid, idx: 0, to: o.from }, false) === 0) finishRx(fid, T('אין חיבור לשרתי הממסר', 'No connection to the relay servers'));
+  if (await send('ev', { t: 'freq', fid, idx: 0, to: o.from, direct: true }, false) === 0) finishRx(fid, T('אין חיבור לשרתי הממסר', 'No connection to the relay servers'));
 }
 function finishRx(fid, err) {
   const rx = rxs[fid]; if (!rx) return; delete rxs[fid];
@@ -334,7 +364,7 @@ function onFres(d) {
   const rx = rxs[d.fid]; if (!rx) return; rx.last = now();
   if (d.mode === 'err') finishRx(d.fid, d.err || '');
   else if (d.mode === 'mqtt') { rx.total = +d.total || 0; if (rx.total === 0) finishRx(d.fid, null); }
-  else finishRx(d.fid, T('הקובץ נשלח דרך אחסון Telegram, שאינו נתמך בדפדפן. קבצים עד 4MB עוברים ישירות.', 'The file was sent through Telegram storage, which the browser cannot use. Files up to 4 MB travel directly.'));
+  else finishRx(d.fid, T('המכשיר השולח הוא גרסה ישנה ושלח את הקובץ דרך אחסון Telegram, שדפדפן אינו יכול להוריד ממנו. עדכן את Cliport במכשיר השולח.', 'The sending device runs an old version and sent the file through Telegram storage, which a browser cannot download from. Update Cliport on the sending device.'));
 }
 function onChunk(d) {
   const rx = rxs[d.fid]; if (!rx) return; const seq = +d.seq;
@@ -363,6 +393,15 @@ async function chunkMsg(file, fid, seq, total) { return { t: 'fchunk', fid, idx:
 async function serveFile(d) {
   const file = outgoing[d.fid], base = { t: 'fres', fid: d.fid, idx: +d.idx || 0, to: d.from };
   if (!file || (+d.idx || 0) !== 0) return send('ev', Object.assign(base, { mode: 'err', err: T('הקובץ כבר לא זמין במכשיר המקורי', 'The file is no longer available on the source device') }), false);
+  if (tgReady() && file.size > TG_FROM) {            // Telegram only where it helps: big files
+    try {
+      const parts = [];
+      for (let off = 0, n = 0; off < file.size; off += TG_PART, n++)
+        parts.push(await tgUpload(await sealBytes(new Uint8Array(await file.slice(off, off + TG_PART).arrayBuffer()), false), `sc-${d.fid}-${n}.bin`));
+      return send('ev', Object.assign(base, { mode: 'tg', parts, size: file.size }), false);
+    } catch (e) { return send('ev', Object.assign(base, { mode: 'err', err: T('העלאה ל-Telegram נכשלה: ', 'Upload to Telegram failed: ') + e.message }), false); }
+  }
+  if (file.size > MAX_FILE) return send('ev', Object.assign(base, { mode: 'err', err: T('הקובץ גדול מ-25MB ואחסון Telegram אינו מוגדר.', 'The file is larger than 25 MB and Telegram storage is not set up.') }), false);
   const total = Math.ceil(file.size / CHUNK), key = d.fid + ':' + d.from;
   await send('ev', Object.assign(base, { mode: 'mqtt', total, size: file.size }), false);
   pace[key] = 30;
@@ -463,7 +502,7 @@ $('pairBtn').onclick = async () => {
 $('unpairBtn').onclick = async () => {
   if (!confirm(T('לנתק את הדפדפן הזה מקבוצת הסנכרון?', 'Disconnect this browser from the sync group?'))) return;
   await send('st/dev/' + ME, devMsg(false), true); links.forEach(l => l.stop()); links = []; K = null;
-  ['code', 'history', 'pins', 'lastClipTs'].forEach(k => localStorage.removeItem(k)); hist = []; pins = []; lastClipTs = 0; render();
+  ['code', 'history', 'pins', 'lastClipTs', 'cfg'].forEach(k => localStorage.removeItem(k)); hist = []; pins = []; lastClipTs = 0; cfg = { cts: 0 }; render();
 };
 $('sendBtn').onclick = () => { const s = $('textIn').value; if (s) { lastText = ''; if (localText(s)) $('textIn').value = ''; } };
 $('clipBtn').onclick = async () => {

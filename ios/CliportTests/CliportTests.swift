@@ -4,65 +4,6 @@ import XCTest
 import UIKit
 @testable import Cliport
 
-/// Spins the main run loop (the engine lives on the main queue) until the condition holds.
-@discardableResult
-func waitFor(_ timeout: TimeInterval, _ cond: () -> Bool) -> Bool {
-    let end = Date().addingTimeInterval(timeout)
-    while Date() < end {
-        if cond() { return true }
-        RunLoop.current.run(until: Date().addingTimeInterval(0.1))
-    }
-    return cond()
-}
-
-/// A second device, built from the app's own protocol pieces.
-final class Peer {
-    let id = AppInfo.randHex(8)
-    let keys: KeyRing
-    var links: [MqttLink] = []
-    var got: [(sub: String, d: [String: Any])] = []
-    var onMsg: ((String, [String: Any]) -> Void)?
-    private var seen = Set<String>()
-
-    init(code: String) {
-        keys = KeyRing(code: code)!
-        for spec in Engine.defaultRelays {
-            guard let l = MqttLink.parse(spec) else { continue }
-            l.clientIdBase = "sc" + id
-            l.subs = [keys.topic + "/ev", keys.topic + "/st/#", keys.topic + "/f/" + id]
-            l.onMessage = { [weak self] topic, payload in self?.wire(topic, payload) }
-            links.append(l)
-            l.start()
-        }
-    }
-    var up: Int { links.filter { $0.up }.count }
-    private func wire(_ topic: String, _ payload: Data) {
-        guard !payload.isEmpty, topic.count > keys.topic.count + 1, let plain = keys.open(payload), let d = J.decode(plain) else { return }
-        if J.s(d, "from") == id { return }
-        let sub = String(topic.dropFirst(keys.topic.count + 1))
-        let key = J.s(d, "id") + "|" + sub
-        if seen.contains(key) { return }
-        seen.insert(key)
-        got.append((sub, d))
-        onMsg?(sub, d)
-    }
-    @discardableResult
-    func send(_ sub: String, _ msg: [String: Any], retain: Bool = false) -> Int {
-        var m = msg
-        if m["id"] == nil { m["id"] = AppInfo.randHex(8) }
-        m["from"] = id
-        if m["ts"] == nil { m["ts"] = AppInfo.now() }
-        let p = keys.seal(J.encode(m))
-        var n = 0
-        for l in links where l.publish(keys.topic + "/" + sub, p, retain: retain) { n += 1 }
-        return n
-    }
-    func first(_ sub: String? = nil, _ f: ([String: Any]) -> Bool) -> [String: Any]? {
-        got.first { (sub == nil || $0.sub == sub) && f($0.d) }?.d
-    }
-    func stop() { links.forEach { $0.stop() } }
-}
-
 final class CliportTests: XCTestCase {
 
     // ---------- pure logic ----------
@@ -125,27 +66,37 @@ final class CliportTests: XCTestCase {
 
     // ---------- live: the app's network client against every default relay ----------
     func testLiveEveryRelayCarriesMessages() {
+        // sizes around the network client's read size (64 KB) and up to the largest text that travels in one message
+        let sizes = [200, 40_000, 70_000, 200_000]
         var ok = 0
-        for spec in Engine.defaultRelays {
+        for spec in Peer.relays {
             let topic = "sc1/test" + AppInfo.randHex(12) + "/ev"
             guard let rx = MqttLink.parse(spec), let tx = MqttLink.parse(spec) else { XCTFail("bad relay \(spec)"); continue }
-            var received: Data?
+            var received: [Int: Bool] = [:]
+            var expected: [Int: Data] = [:]
             rx.clientIdBase = "scT" + AppInfo.randHex(4); tx.clientIdBase = "scT" + AppInfo.randHex(4)
             rx.subs = [topic]
-            rx.onMessage = { t, p in if t == topic { received = p } }
+            rx.onMessage = { t, p in if t == topic { received[p.count] = (expected[p.count] == p) } }
             rx.start(); tx.start()
-            let up = waitFor(25) { rx.up && tx.up }
-            if up {
+            if waitFor(25, { rx.up && tx.up }) {
                 waitFor(1.5) { false }
-                let payload = Data((0..<70_000).map { _ in UInt8.random(in: 0...255) })      // larger than one read: exercises packet reassembly
-                tx.publish(topic, payload, retain: false)
-                if waitFor(15, { received != nil }) && received == payload { ok += 1; print("RELAY OK \(spec)") } else { print("RELAY NO DELIVERY \(spec)") }
-            } else { print("RELAY NO CONNECTION \(spec)") }
+                var line = "RELAY \(spec):"
+                var all = true
+                for n in sizes {
+                    let payload = Data((0..<n).map { _ in UInt8.random(in: 0...255) })
+                    expected[n] = payload
+                    tx.publish(topic, payload, retain: false)
+                    let arrived = waitFor(12) { received[n] != nil }
+                    line += " \(n)=" + (arrived ? (received[n] == true ? "ok" : "CORRUPT") : "lost")
+                    if n <= 70_000 && received[n] != true { all = false }
+                }
+                print(line)
+                if all { ok += 1 }
+            } else { print("RELAY \(spec): no connection") }
             rx.stop(); tx.stop()
         }
-        XCTAssertGreaterThanOrEqual(ok, 2, "at least two of the three public relays must carry messages")
+        XCTAssertGreaterThanOrEqual(ok, 2, "at least two of the three public relays must carry messages of every usual size")
     }
-
     // ---------- live: the whole engine against a second device ----------
     func testLiveEndToEnd() throws {
         let eng = Engine.shared

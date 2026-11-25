@@ -623,7 +623,9 @@ namespace Cliport
         {
             string fid = Json.S(d, "fid"), to = Json.S(d, "from"); int idx = (int)Json.L(d, "idx");
             Offer o; outgoing.TryGetValue(fid, out o);
-            var keys = Keys; var hub = Hub; string token = TgToken, chat = TgChat; bool tg = TgReady;
+            // "direct": the receiver cannot download from Telegram (a browser - Telegram's file server sends no CORS headers)
+            bool direct = Json.B(d, "direct");
+            var keys = Keys; var hub = Hub; string token = TgToken, chat = TgChat; bool tg = TgReady && !direct;
             ThreadPool.QueueUserWorkItem(delegate
             {
                 var res = new Dictionary<string, object>(); res["t"] = "fres"; res["fid"] = fid; res["idx"] = idx; res["to"] = to;
@@ -647,6 +649,7 @@ namespace Cliport
                             Log.Write("served via telegram: " + path);
                             return;
                         }
+                        if (size > MaxRelayFile && direct) throw new IOException(L.T("הקובץ גדול מ-25MB, ולקוח הדפדפן מקבל קבצים עד 25MB בלבד.", "The file is larger than 25 MB, and the web client receives files up to 25 MB only."));
                         if (size > MaxRelayFile) throw new IOException(L.T("הקובץ גדול מ-25MB. הגדר אחסון Telegram בהגדרות כדי להעביר קבצים גדולים.", "The file is larger than 25 MB. Set up Telegram storage in Settings to transfer large files."));
                         int total = (int)((size + Chunk - 1) / Chunk);
                         res["mode"] = "mqtt"; res["total"] = total;
