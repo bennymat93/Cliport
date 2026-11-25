@@ -67,7 +67,7 @@ namespace Cliport
                     if (OnUp != null) OnUp(this);
                     ReadLoop();
                 }
-                catch (Exception e) { if (!stop) Log.Write("relay " + Host + ": " + e.GetType().Name + " " + e.Message); }
+                catch (Exception e) { if (!stop && !kicked) Log.Write("relay " + Host + ": " + e.GetType().Name + " " + e.Message); }
                 finally
                 {
                     Close();

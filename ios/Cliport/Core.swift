@@ -31,6 +31,14 @@ enum L {
 
 enum Log {
     private static let q = DispatchQueue(label: "sc.log")
+    /// The end of the log (for diagnostics), delivered on the main queue.
+    static func tail(_ maxBytes: Int, _ done: @escaping (String) -> Void) {
+        q.async {
+            let data = (try? Data(contentsOf: AppInfo.caches.appendingPathComponent("app.log"))) ?? Data()
+            let text = String(decoding: data.suffix(maxBytes), as: UTF8.self)
+            DispatchQueue.main.async { done(text) }
+        }
+    }
     static func write(_ msg: String) {
         let line = ISO8601DateFormatter().string(from: Date()) + " " + msg + "\n"
         q.async {

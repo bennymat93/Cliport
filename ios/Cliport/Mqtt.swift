@@ -91,6 +91,7 @@ final class MqttLink {
 
     private func dropped(_ g: Int) {
         guard g == gen else { return }
+        if up { Log.write("relay down: \(host)") }
         teardown()
         guard !stopped else { return }
         let delay = backoff + Double.random(in: 0...0.7)

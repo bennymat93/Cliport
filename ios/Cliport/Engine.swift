@@ -26,6 +26,11 @@ struct BackupInfo: Identifiable {
     var id: String { url.lastPathComponent }
 }
 
+struct ClipConflict: Identifiable {
+    let id = UUID()
+    let local: String, remote: String, from: String
+}
+
 struct DeviceInfo: Identifiable {
     var id: String
     var name = ""; var plat = ""; var ver = ""; var online = false; var ts: Int64 = 0
@@ -71,6 +76,11 @@ final class Engine: ObservableObject {
     private var lastNetKick = Date.distantPast
     private var lastPathSig: String?
     private var pendingPaste: String?
+    /// Both sides changed while the app was away and iOS cannot tell which copy is newer: the user chooses.
+    @Published var conflict: ClipConflict?
+    private var holdLocal = false                     // just opened: wait for the relays before sending this device's clipboard
+    private var heldRemote: (text: String, from: String)?
+    private var holdGen = 0
     /// A silent notification when something arrives while the app is in the background.
     var notifyClips: Bool {
         get { ud.object(forKey: "notifyClips") == nil ? true : ud.bool(forKey: "notifyClips") }
@@ -206,20 +216,64 @@ final class Engine: ObservableObject {
         isActive = true
         Recovery.markAlive(true)
         links.forEach { $0.healIfStale() }
+        refreshUp()
+        Log.write("active, relays \(upCount)/\(links.count), keep-alive \(KeepAlive.shared.playing ? "playing" : "silent")")
         Notifier.clearClip()
+        let pb = UIPasteboard.general
         if let p = pendingPaste {
             pendingPaste = nil
-            let pb = UIPasteboard.general
             // unchanged count = nothing was copied on this device meanwhile, so the item that arrived is the newest
             if pb.changeCount == lastChangeCount || lastChangeCount < 0 {
                 pb.string = p; lastChangeCount = pb.changeCount
                 banner = L.t("הפריט שהתקבל ברקע הועבר ללוח", "The item received in the background is now on the clipboard")
             }
         }
-        checkLocalClipboard()
+        guard paired, !paused, pb.changeCount != lastChangeCount else { return }
+        if upCount > 0 { checkLocalClipboard(); return }      // we stayed connected: anything newer from elsewhere already arrived
+        // The app was not running in the background. Something newer may be waiting on the relays, and sending this
+        // device's (possibly old) clipboard first would overwrite it everywhere - so connect and look before sending.
+        holdLocal = true; heldRemote = nil; holdGen += 1
+        let g = holdGen, began = Date()
+        var upSince: Date?
+        func poll() {
+            guard g == self.holdGen, self.holdLocal else { return }
+            if self.upCount > 0, upSince == nil { upSince = Date() }
+            let settled = upSince.map { Date().timeIntervalSince($0) > 1.2 } ?? false
+            if settled || self.heldRemote != nil || Date().timeIntervalSince(began) > 5 { self.endHold(); return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { poll() }
+        }
+        poll()
+    }
+    private func endHold() {
+        guard holdLocal else { return }
+        holdLocal = false
+        guard let r = heldRemote else { checkLocalClipboard(); return }
+        heldRemote = nil
+        let pb = UIPasteboard.general
+        let local = pb.hasStrings ? (pb.string ?? "") : ""
+        if local.isEmpty || local == r.text {
+            pb.string = r.text; lastChangeCount = pb.changeCount
+            banner = L.t("התקבל מ-", "Received from ") + r.from
+        } else {
+            lastChangeCount = pb.changeCount
+            Log.write("both sides changed while away - asking")
+            conflict = ClipConflict(local: local, remote: r.text, from: r.from)
+        }
+    }
+    /// The answer to "which copy is the newer one?".
+    func resolveConflict(useLocal: Bool) {
+        guard let c = conflict else { return }
+        conflict = nil
+        if useLocal { lastHash = ""; localText(c.local) }
+        else {
+            UIPasteboard.general.string = c.remote; lastChangeCount = UIPasteboard.general.changeCount
+            banner = L.t("התקבל מ-", "Received from ") + c.from
+        }
     }
     func enteredBackground() {
         isActive = false
+        holdLocal = false; heldRemote = nil; holdGen += 1
+        Log.write("background, relays \(upCount)/\(links.count), keep-alive \(KeepAlive.shared.playing ? "playing" : "silent")")
         if !(keepAlive && paired) { Recovery.markAlive(false) }
     }
 
@@ -230,6 +284,7 @@ final class Engine: ObservableObject {
         guard tickN % 4 == 0 else { return }                       // every ~6s
         links.forEach { $0.healIfStale() }
         refreshUp()
+        if paired && keepAlive && !Recovery.safeMode { KeepAlive.shared.ensure() }
         let now = AppInfo.now()
         if now - lastDevPub > 60_000 { publishDev() }
         autoBackupIfDue(now)
@@ -287,6 +342,7 @@ final class Engine: ObservableObject {
         case "fres": if J.s(d, "to") == deviceId { onFres(d) }
         case "fnak": if J.s(d, "to") == deviceId { serveNak(d) }
         case "fchunk": onChunk(d)
+        case "diagreq": sendDiag(from)
         default: break
         }
     }
@@ -313,12 +369,15 @@ final class Engine: ObservableObject {
         lastHash = Engine.hash(text)
         addHistory(text)
         let pb = UIPasteboard.general
-        if UIApplication.shared.applicationState == .active {
+        if holdLocal {
+            heldRemote = (text, nameOf(J.s(d, "from")))          // decided in endHold()
+        } else if UIApplication.shared.applicationState == .active {
             pb.string = text; lastChangeCount = pb.changeCount; pendingPaste = nil
         } else {
             // iOS may silently refuse pasteboard writes from the background: try, and if nothing changed keep the
             // text and put it on the pasteboard the moment the app is opened (the notification is one tap away).
             let before = pb.changeCount
+            if before != lastChangeCount { lastChangeCount = before }   // copied here earlier and never sent: this arrival is newer
             pb.string = text
             let after = pb.changeCount
             if after != before { lastChangeCount = after; pendingPaste = nil }
@@ -332,7 +391,7 @@ final class Engine: ObservableObject {
     }
     /// Foreground only (iOS does not let any app read the pasteboard in the background).
     func checkLocalClipboard() {
-        guard paired, !paused else { return }
+        guard paired, !paused, !holdLocal else { return }
         let pb = UIPasteboard.general
         let cc = pb.changeCount
         guard cc != lastChangeCount else { return }
@@ -358,7 +417,18 @@ final class Engine: ObservableObject {
         }
     }
     /// Manual "send now" button: forces a re-read of the pasteboard.
-    func sendClipboardNow() { lastChangeCount = -1; lastHash = ""; checkLocalClipboard() }
+    func sendClipboardNow() { holdLocal = false; heldRemote = nil; holdGen += 1; lastChangeCount = -1; lastHash = ""; checkLocalClipboard() }
+
+    // ---------- diagnostics: another device asked for this device's log (no clipboard content is ever logged) ----------
+    private func sendDiag(_ to: String) {
+        let info = "iOS \(UIDevice.current.systemVersion), \(UIDevice.current.model), app \(AppInfo.version), relays \(upCount)/\(links.count), " +
+                   "active \(isActive), keepAlive \(keepAlive), playing \(KeepAlive.shared.playing), notifyClips \(notifyClips), paused \(paused), safeMode \(Recovery.safeMode)"
+        Log.write("diagnostics requested")
+        Log.tail(60_000) { [weak self] text in
+            guard let self = self else { return }
+            self.send("f/" + to, ["t": "diag", "to": to, "name": self.deviceName, "plat": "ios", "info": info, "log": text], retain: false)
+        }
+    }
     private func tempURL(_ name: String) -> URL {
         let dir = AppInfo.caches.appendingPathComponent("outgoing", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -375,6 +445,7 @@ final class Engine: ObservableObject {
             localFiles([url], image: false, text: true); lastHash = h; return
         }
         lastHash = h
+        ud.set(h, forKey: "lastSentHash")
         publishClip(["t": "clip", "kind": "text", "text": text])
         banner = L.t("נשלח לכל המכשירים", "Sent to all devices")
         Log.write("clip out (\(text.count) chars)")
@@ -400,7 +471,13 @@ final class Engine: ObservableObject {
     func sendFromIntent(text: String) async -> Bool {
         // Unchanged content is deliberately NOT re-sent: an automation that fires on every app switch
         // must never push an old clipboard over something newer copied on another device.
-        await MainActor.run { if self.links.isEmpty { self.start() }; self.localText(text) }
+        // The same goes for content this device already sent once: after something newer arrived from another
+        // device (and iOS kept it off the pasteboard in the background), the automation still sees the old text.
+        await MainActor.run {
+            if self.links.isEmpty { self.start() }
+            if Engine.hash(text) == self.ud.string(forKey: "lastSentHash") { return }
+            self.localText(text)
+        }
         for _ in 0..<40 {
             let delivered = await MainActor.run { self.pending == nil && self.upCount > 0 }
             if delivered { break }

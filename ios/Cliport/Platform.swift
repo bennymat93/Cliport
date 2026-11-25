@@ -37,6 +37,13 @@ final class KeepAlive {
             if player?.isPlaying != true { player?.play() }
         } catch { Log.write("keep-alive failed: \(error.localizedDescription)") }
     }
+    var playing: Bool { player?.isPlaying == true }
+    /// Called every few seconds: iOS sometimes stops the player without an interruption notice.
+    func ensure() {
+        guard wanted, !playing else { return }
+        Log.write("keep-alive was stopped - restarting")
+        start()
+    }
     func stop() {
         wanted = false
         player?.stop()

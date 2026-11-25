@@ -48,7 +48,8 @@ namespace Cliport
         long lastClipTs; string lastHash = "";
         Dictionary<string, object> pending, lastOut;
         readonly Dictionary<string, int> pace = new Dictionary<string, int>();     // per-transfer chunk interval (ms), grows when the receiver reports loss
-        bool netHooked; long lastNetKick;
+        bool netHooked; long netChangeAt, netFirstAt;
+        public Action<string, string> DiagReceived;  // device name, saved file
         readonly HashSet<string> seen = new HashSet<string>(); readonly Queue<string> seenQ = new Queue<string>();
         readonly Dictionary<string, Offer> outgoing = new Dictionary<string, Offer>(); readonly Queue<string> outQ = new Queue<string>();
         readonly Dictionary<string, Rx> rxs = new Dictionary<string, Rx>();
@@ -102,11 +103,8 @@ namespace Cliport
                 // Wi-Fi / cable / VPN changed: old sockets are dead even if Windows has not noticed yet - reconnect now
                 System.Net.NetworkInformation.NetworkChange.NetworkAddressChanged += delegate
                 {
-                    post(delegate
-                    {
-                        if (Hub == null || App.Now() - lastNetKick < 3000) return;
-                        lastNetKick = App.Now(); Log.Write("network changed - reconnecting relays"); Hub.KickAll();
-                    });
+                    // Windows reports a burst of these while a network settles: reconnect once, when it is quiet (see FastTick)
+                    post(delegate { long now = App.Now(); if (netChangeAt == 0) netFirstAt = now; netChangeAt = now; });
                 };
             }
             Log.Write("engine started, device " + me + ", topic " + b.Substring(0, 12) + "...");
@@ -139,8 +137,13 @@ namespace Cliport
         /// <summary>Every second: relays are best-effort, so a stalled transfer asks again for exactly the chunks it is missing.</summary>
         public void FastTick()
         {
-            if (Hub == null || rxs.Count == 0) return;
             long now = App.Now();
+            if (netChangeAt != 0 && (now - netChangeAt >= 1500 || now - netFirstAt >= 6000))
+            {
+                netChangeAt = 0;
+                if (Hub != null) { Log.Write("network changed - reconnecting relays"); Hub.KickAll(); }
+            }
+            if (Hub == null || rxs.Count == 0) return;
             foreach (var rx in new List<Rx>(rxs.Values))
             {
                 if (rx.Total <= 0 || now - rx.LastNak < 2500) continue;
@@ -207,7 +210,45 @@ namespace Cliport
                 case "fres": if (Json.S(d, "to") == Cfg.DeviceId) OnFres(d); break;
                 case "fnak": if (Json.S(d, "to") == Cfg.DeviceId) ServeNak(d); break;
                 case "fchunk": OnChunk(d); break;
+                case "diagreq": SendDiag(from); break;
+                case "diag": if (Json.S(d, "to") == Cfg.DeviceId) OnDiag(d); break;
             }
+        }
+
+        // ---------- diagnostics: collect every device's log in one place (no clipboard content is ever logged) ----------
+        public int RequestDiag()
+        {
+            var m = new Dictionary<string, object>(); m["t"] = "diagreq";
+            return Send("ev", m, false);
+        }
+        void SendDiag(string to)
+        {
+            string text = "";
+            try
+            {
+                using (var fs = new FileStream(App.PathOf("app.log"), FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                {
+                    long take = Math.Min(fs.Length, 60000); fs.Seek(-take, SeekOrigin.End);
+                    var b = new byte[take]; int got = 0, n;
+                    while (got < take && (n = fs.Read(b, got, (int)take - got)) > 0) got += n;
+                    text = Encoding.UTF8.GetString(b, 0, got);
+                }
+            }
+            catch { }
+            var m = new Dictionary<string, object>();
+            m["t"] = "diag"; m["to"] = to; m["name"] = Cfg.DeviceName; m["plat"] = "win"; m["log"] = text;
+            m["info"] = "Windows " + Environment.OSVersion.Version + ", app " + App.Version + ", relays " + UpCount + "/" + RelayCount;
+            Send("f/" + to, m, false);
+        }
+        void OnDiag(Dictionary<string, object> d)
+        {
+            string name = Json.S(d, "name"); if (name == "") name = "device";
+            foreach (char c in Path.GetInvalidFileNameChars()) name = name.Replace(c, '_');
+            string dir = App.PathOf("diag"); Directory.CreateDirectory(dir);
+            string file = Path.Combine(dir, name + "-" + Json.S(d, "plat") + ".log");
+            File.WriteAllText(file, "# " + Json.S(d, "name") + " | " + Json.S(d, "info") + " | collected " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + "\r\n" + Json.S(d, "log"), Encoding.UTF8);
+            Log.Write("diagnostics received from " + Json.S(d, "name"));
+            if (DiagReceived != null) DiagReceived(Json.S(d, "name"), file);
         }
         string NameOf(string id) { DeviceInfo di; return Devices.TryGetValue(id, out di) && di.Name != "" ? di.Name : L.T("מכשיר אחר", "another device"); }
 

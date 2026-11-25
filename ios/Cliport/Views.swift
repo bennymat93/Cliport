@@ -92,10 +92,21 @@ struct MainTabs: View {
         } message: { o in
             Text(OfferText.describe(o))
         }
+        .alert(L.t("איזה פריט חדש יותר?", "Which item is newer?"), isPresented: Binding(get: { eng.conflict != nil }, set: { _ in }), presenting: eng.conflict) { c in
+            Button(L.t("קבל מ-", "Take from ") + c.from) { eng.resolveConflict(useLocal: false) }
+            Button(L.t("שלח מהמכשיר הזה", "Send from this device")) { eng.resolveConflict(useLocal: true) }
+        } message: { c in
+            Text(L.t("גם כאן וגם ב-\(c.from) הועתק משהו בזמן ש-Cliport היה סגור.\n\nמ-\(c.from): \(OfferText.preview(c.remote))\n\nבמכשיר הזה: \(OfferText.preview(c.local))",
+                     "Something was copied both here and on \(c.from) while Cliport was closed.\n\nFrom \(c.from): \(OfferText.preview(c.remote))\n\nOn this device: \(OfferText.preview(c.local))"))
+        }
     }
 }
 
 enum OfferText {
+    static func preview(_ s: String) -> String {
+        let one = s.split(whereSeparator: { $0.isNewline }).joined(separator: " ")
+        return one.count > 70 ? String(one.prefix(70)) + "…" : one
+    }
     static func describe(_ o: Offer) -> String {
         var lines = [L.t("מאת: ", "From: ") + o.fromName]
         for f in o.files {

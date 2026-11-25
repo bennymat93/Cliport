@@ -559,6 +559,7 @@ namespace Cliport
             Item(mTools, L.T("הפעל Remote Desktop במחשב זה", "Enable Remote Desktop on this PC"), 0, Keys.None, delegate { EnableRdp(); });
             mTools.DropDownItems.Add(new ToolStripSeparator());
             Item(mTools, L.T("פתח את תיקיית הנתונים והיומן", "Open data folder and log"), Ux.GFolder, Keys.None, delegate { OpenFolder(""); });
+            Item(mTools, L.T("אסוף יומני אבחון מכל המכשירים", "Collect diagnostic logs from all devices"), 0, Keys.None, delegate { CollectDiag(); });
             var mHelp = new ToolStripMenuItem(L.T("ע&זרה", "&Help"));
             Item(mHelp, L.T("מדריך למשתמש", "User guide"), Ux.GHelp, Keys.F1, delegate { ShowHelp(); });
             Item(mHelp, L.T("קיצורי מקשים", "Keyboard shortcuts"), 0, Keys.None, delegate { ShowShortcuts(); });
@@ -1119,6 +1120,22 @@ namespace Cliport
         void TogglePause() { eng.Paused = !eng.Paused; RefreshStatus(); }
         void OpenFolder(string sub) { try { string d = sub == "" ? App.DataDir : App.PathOf(sub); Directory.CreateDirectory(d); Process.Start(d); } catch { } }
         void ShowCode() { if (eng.Paired) using (var f = new CodeForm(eng.Keys.Code)) f.ShowDialog(this); }
+        /// <summary>Asks every connected device for the end of its log and saves the answers in the "diag" folder.</summary>
+        void CollectDiag()
+        {
+            if (!eng.Paired || eng.RequestDiag() == 0) { Toast("Cliport", L.T("אין חיבור לשרתי הממסר.", "No connection to the relay servers.")); return; }
+            int got = 0;
+            eng.DiagReceived = delegate { got++; };
+            var t = new System.Windows.Forms.Timer(); t.Interval = 6000;
+            t.Tick += delegate
+            {
+                t.Stop(); t.Dispose();
+                Toast("Cliport", got == 0 ? L.T("אף מכשיר אחר לא ענה. ודא ש-Cliport פתוח במכשיר השני ונסה שוב.", "No other device answered. Make sure Cliport is open on the other device and try again.")
+                                          : L.T("התקבלו יומנים מ-" + got + " מכשירים.", "Logs received from " + got + " device(s)."));
+                if (got > 0) OpenFolder("diag");
+            };
+            t.Start();
+        }
         void ShowAbout() { using (var a = new AboutForm(cfg)) a.ShowDialog(this); }
         void ShowHelp()
         {
