@@ -56,10 +56,8 @@ final class CliportUITests: XCTestCase {
         var tapped = false
         let end = Date().addingTimeInterval(seconds)
         while Date() < end {
-            for owner in [springboard, app] {
-                let b = owner.buttons["Allow Paste"]
-                if b.exists { b.tap(); tapped = true }
-            }
+            let b = springboard.buttons["Allow Paste"]      // the app itself is blocked while the question is up: never query it here
+            if b.exists { b.tap(); tapped = true }
             waitFor(0.4) { false }
         }
         return tapped
@@ -71,7 +69,7 @@ final class CliportUITests: XCTestCase {
         DispatchQueue.global().async { box.value = UIPasteboard.general.string; box.done = true }
         let end = Date().addingTimeInterval(8)
         while !box.done && Date() < end {
-            for owner in [springboard, app] { let b = owner.buttons["Allow Paste"]; if b.exists { b.tap() } }
+            let b = springboard.buttons["Allow Paste"]; if b.exists { b.tap() }
             waitFor(0.3) { false }
         }
         if !box.done { print("CLIPBOARD the test runner could not read the pasteboard (no answer within 8 s)") }
@@ -79,7 +77,7 @@ final class CliportUITests: XCTestCase {
     }
     private final class PasteBox { var value: String?; var done = false }
     private func shows(_ app: XCUIApplication, _ text: String, _ seconds: TimeInterval) -> Bool {
-        app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", text)).firstMatch.waitForExistence(timeout: seconds)
+        app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", text)).firstMatch.waitForExistence(timeout: seconds)
     }
 
     func test3LiveSyncWithTheRealClipboard() {

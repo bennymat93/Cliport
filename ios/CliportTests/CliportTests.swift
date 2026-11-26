@@ -76,7 +76,8 @@ final class CliportTests: XCTestCase {
             var expected: [Int: Data] = [:]
             rx.clientIdBase = "scT" + AppInfo.randHex(4); tx.clientIdBase = "scT" + AppInfo.randHex(4)
             rx.subs = [topic]
-            rx.onMessage = { t, p in if t == topic { received[p.count] = (expected[p.count] == p) } }
+            var any = 0
+            rx.onMessage = { t, p in any += 1; if t == topic { received[p.count] = (expected[p.count] == p) } else { print("RELAY unexpected topic \(t)") } }
             rx.start(); tx.start()
             if waitFor(25, { rx.up && tx.up }) {
                 waitFor(1.5) { false }
@@ -85,12 +86,13 @@ final class CliportTests: XCTestCase {
                 for n in sizes {
                     let payload = Data((0..<n).map { _ in UInt8.random(in: 0...255) })
                     expected[n] = payload
-                    tx.publish(topic, payload, retain: false)
+                    let sentOk = tx.publish(topic, payload, retain: false)
+                    if !sentOk { line += " \(n)=NOT-SENT"; all = false; continue }
                     let arrived = waitFor(12) { received[n] != nil }
                     line += " \(n)=" + (arrived ? (received[n] == true ? "ok" : "CORRUPT") : "lost")
                     if n <= 70_000 && received[n] != true { all = false }
                 }
-                print(line)
+                print(line + "  [links up after test: rx=\(rx.up) tx=\(tx.up), messages seen: \(any)]")
                 if all { ok += 1 }
             } else { print("RELAY \(spec): no connection") }
             rx.stop(); tx.stop()
