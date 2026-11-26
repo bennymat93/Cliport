@@ -1,4 +1,4 @@
-// Cliport v2.0 - core: logging, JSON helpers, config store, crypto.
+// Cliport v2.3 - core: logging, JSON helpers, config store, crypto.
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -9,15 +9,15 @@ using System.Web.Script.Serialization;
 
 [assembly: System.Reflection.AssemblyTitle("Cliport")]
 [assembly: System.Reflection.AssemblyProduct("Cliport")]
-[assembly: System.Reflection.AssemblyVersion("2.0.0.0")]
-[assembly: System.Reflection.AssemblyFileVersion("2.0.0.0")]
+[assembly: System.Reflection.AssemblyVersion("2.3.0.0")]
+[assembly: System.Reflection.AssemblyFileVersion("2.3.0.0")]
 [assembly: System.Runtime.Versioning.TargetFramework(".NETFramework,Version=v4.8", FrameworkDisplayName = ".NET Framework 4.8")]
 
 namespace Cliport
 {
     static class App
     {
-        public const string Version = "2.0";
+        public const string Version = "2.3";
         public const string Name = "Cliport";
         public static string DataDir;
         public static string PathOf(string n) { return Path.Combine(DataDir, n); }

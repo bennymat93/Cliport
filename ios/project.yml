@@ -16,7 +16,7 @@ targets:
       path: Cliport/Info.plist
       properties:
         CFBundleDisplayName: Cliport
-        CFBundleShortVersionString: "2.0"
+        CFBundleShortVersionString: "2.3"
         CFBundleVersion: "1"
         CFBundleDevelopmentRegion: he
         UILaunchScreen: {}
@@ -40,7 +40,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.cliport.app
         PRODUCT_NAME: Cliport
-        MARKETING_VERSION: "2.0"
+        MARKETING_VERSION: "2.3"
         CURRENT_PROJECT_VERSION: "1"
         SWIFT_VERSION: "5.0"
         TARGETED_DEVICE_FAMILY: "1,2"

@@ -50,25 +50,25 @@ jobs:
         run: |
           mkdir -p Payload
           cp -R build/Build/Products/Release-iphoneos/Cliport.app Payload/
-          zip -qry Cliport-v2.0-unsigned.ipa Payload
+          zip -qry Cliport-v2.3-unsigned.ipa Payload
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Cliport-v2.0-unsigned-ipa
-          path: ios/Cliport-v2.0-unsigned.ipa
+          name: Cliport-v2.3-unsigned-ipa
+          path: ios/Cliport-v2.3-unsigned.ipa
 
       # Downloads page: https://github.com/<owner>/<repo>/releases/latest
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cp dist/Cliport-Setup.exe Cliport-v2.0-Setup.exe
-          cp dist/Cliport.exe Cliport-v2.0-portable.exe
-          cp ios/Cliport-v2.0-unsigned.ipa Cliport-v2.0-unsigned.ipa
+          cp dist/Cliport-Setup.exe Cliport-v2.3-Setup.exe
+          cp dist/Cliport.exe Cliport-v2.3-portable.exe
+          cp ios/Cliport-v2.3-unsigned.ipa Cliport-v2.3-unsigned.ipa
           cp web/index.html Cliport-web.html
-          FILES="Cliport-v2.0-Setup.exe Cliport-v2.0-portable.exe Cliport-v2.0-unsigned.ipa Cliport-web.html docs/Cliport-User-Guide-he.pdf docs/Cliport-User-Guide-en.pdf"
-          if gh release view v2.0 >/dev/null 2>&1; then
-            gh release upload v2.0 $FILES --clobber
+          FILES="Cliport-v2.3-Setup.exe Cliport-v2.3-portable.exe Cliport-v2.3-unsigned.ipa Cliport-web.html docs/Cliport-User-Guide-he.pdf docs/Cliport-User-Guide-en.pdf"
+          if gh release view v2.3 >/dev/null 2>&1; then
+            gh release upload v2.3 $FILES --clobber
           else
-            gh release create v2.0 $FILES --title "Cliport v2.0" --notes "Windows: Cliport-v2.0-Setup.exe (installer) or Cliport-v2.0-portable.exe (no installation). iPhone / iPad: Cliport-v2.0-unsigned.ipa (unsigned, for sideloading). Android, Mac, Linux: the web client, https://bennymat93.github.io/Cliport/ (or Cliport-web.html). User guides: Hebrew and English PDF."
+            gh release create v2.3 $FILES --title "Cliport v2.3" --notes "Windows: Cliport-v2.3-Setup.exe (installer) or Cliport-v2.3-portable.exe (no installation). iPhone / iPad: Cliport-v2.3-unsigned.ipa (unsigned, for sideloading). Android, Mac, Linux: the web client, https://bennymat93.github.io/Cliport/ (or Cliport-web.html). User guides: Hebrew and English PDF."
           fi

@@ -1,4 +1,4 @@
-// Cliport v2.0 (iOS) - floating window (Picture in Picture).
+// Cliport v2.3 (iOS) - floating window (Picture in Picture).
 // While its small window floats above other apps, iOS treats Cliport as on-screen: it keeps running and may use the
 // pasteboard, so copying syncs in both directions without opening the app. The window can be pushed to the screen edge.
 import AVKit

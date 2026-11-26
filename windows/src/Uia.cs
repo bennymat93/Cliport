@@ -1,4 +1,4 @@
-﻿// Cliport v2.0 - UI Automation for the hand-drawn lists, so Narrator and other UI Automation screen readers read the rows.
+﻿// Cliport v2.3 - UI Automation for the hand-drawn lists, so Narrator and other UI Automation screen readers read the rows.
 using System;
 using System.Collections.Generic;
 using System.Drawing;

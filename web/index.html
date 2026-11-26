@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#4f46e5">
 <title>Cliport Web</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%234f46e5'/%3E%3Crect x='18' y='14' width='28' height='38' rx='5' fill='%23fff'/%3E%3Crect x='25' y='9' width='14' height='10' rx='3' fill='%23c7d2fe'/%3E%3Cpath d='M24 30h16M24 37h16M24 44h10' stroke='%234f46e5' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
-<!-- Cliport v2.0 - web client. One file, no server of its own: it talks to the same relays as the apps, with the same end-to-end encryption.
+<!-- Cliport v2.3 - web client. One file, no server of its own: it talks to the same relays as the apps, with the same end-to-end encryption.
      Works in any current browser (Android, macOS, Linux, ChromeOS, Windows). The pairing code never leaves this browser. -->
 <style>
 :root { --bg:#f5f6fa; --card:#fff; --text:#16181d; --sub:#667085; --line:#e4e7ec; --accent:#4f46e5; --accent-text:#fff; --ok:#12b76a; --warn:#f79009; --danger:#d92d20; }
@@ -33,7 +33,7 @@ progress { width:100%; } a { color:var(--accent); }
 </head>
 <body>
 <main>
-  <div class="row"><h1 class="grow">Cliport <span class="sub" style="font-size:14px">Web v2.0</span></h1><button class="small" id="langBtn"></button></div>
+  <div class="row"><h1 class="grow">Cliport <span class="sub" style="font-size:14px">Web v2.3</span></h1><button class="small" id="langBtn"></button></div>
 
   <section id="pairView" class="hidden">
     <div class="card">
@@ -219,7 +219,7 @@ const devs = {}, seen = new Set(), seenQ = [], offers = {}, outgoing = {}, rxs =
 const upCount = () => links.filter(l => l.up).length;
 const deviceName = () => localStorage.getItem('name') || 'Web';
 const stamp = m => { if (!m.id) m.id = randHex(8); m.from = ME; if (!m.ts) m.ts = now(); return m; };
-const devMsg = online => ({ t: 'dev', name: deviceName(), plat: 'web', ver: "2.0", online });
+const devMsg = online => ({ t: 'dev', name: deviceName(), plat: 'web', ver: "2.3", online });
 async function send(sub, m, retain) { const p = await seal(stamp(m)); let n = 0; for (const l of links) if (l.publish(K.topic + '/' + sub, p, retain)) n++; return n; }
 async function sendOne(sub, m) { const p = await seal(stamp(m)); const n = links.length; rr = (rr + 1) % n; for (let i = 0; i < n; i++) if (links[(rr + i) % n].publish(K.topic + '/' + sub, p, false)) return true; return false; }
 function publishDev() { send('st/dev/' + ME, devMsg(true), true); }

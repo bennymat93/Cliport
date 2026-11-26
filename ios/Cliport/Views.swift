@@ -1,4 +1,4 @@
-// Cliport v2.0 (iOS) - SwiftUI interface. Two languages (Hebrew / English) and three appearance modes (light / device / dark).
+// Cliport v2.3 (iOS) - SwiftUI interface. Two languages (Hebrew / English) and three appearance modes (light / device / dark).
 import SwiftUI
 import UIKit
 import WebKit

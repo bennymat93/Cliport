@@ -1,4 +1,4 @@
-// Cliport v2.0 - minimal MQTT 3.1.1 client over TLS + multi-relay hub (redundant brokers).
+// Cliport v2.3 - minimal MQTT 3.1.1 client over TLS + multi-relay hub (redundant brokers).
 using System;
 using System.Collections.Generic;
 using System.IO;

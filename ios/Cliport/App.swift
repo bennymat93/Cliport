@@ -1,4 +1,4 @@
-// Cliport v2.0 (iOS) - app entry, lifecycle, notification actions, Shortcuts actions.
+// Cliport v2.3 (iOS) - app entry, lifecycle, notification actions, Shortcuts actions.
 import SwiftUI
 import UIKit
 import UserNotifications
