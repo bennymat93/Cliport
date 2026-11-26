@@ -64,6 +64,20 @@ final class CliportUITests: XCTestCase {
         }
         return tapped
     }
+    /// Reading the pasteboard can make iOS ask for permission and block until the question is answered,
+    /// so the read runs on another thread while this one answers the question.
+    private func readPasteboard(_ app: XCUIApplication) -> String? {
+        let box = PasteBox()
+        DispatchQueue.global().async { box.value = UIPasteboard.general.string; box.done = true }
+        let end = Date().addingTimeInterval(8)
+        while !box.done && Date() < end {
+            for owner in [springboard, app] { let b = owner.buttons["Allow Paste"]; if b.exists { b.tap() } }
+            waitFor(0.3) { false }
+        }
+        if !box.done { print("CLIPBOARD the test runner could not read the pasteboard (no answer within 8 s)") }
+        return box.done ? box.value : nil
+    }
+    private final class PasteBox { var value: String?; var done = false }
     private func shows(_ app: XCUIApplication, _ text: String, _ seconds: TimeInterval) -> Bool {
         app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", text)).firstMatch.waitForExistence(timeout: seconds)
     }
@@ -87,7 +101,7 @@ final class CliportUITests: XCTestCase {
         peer.copy(t1)
         XCTAssertTrue(shows(app, t1, 20), "text copied on the other device appears in the app")
         waitFor(1.5) { false }
-        let read1 = UIPasteboard.general.string
+        let read1 = readPasteboard(app)
         allowPaste(app, seconds: 2)
         print("CLIPBOARD foreground arrival: pasteboard holds the text = \(read1 == t1) (read by the test runner: \(read1 == nil ? "nothing" : "a value"))")
 
@@ -106,13 +120,13 @@ final class CliportUITests: XCTestCase {
         let t3 = "to-background-\(rand())"
         peer.copy(t3)
         waitFor(6) { false }
-        let read3 = UIPasteboard.general.string
+        let read3 = readPasteboard(app)
         print("CLIPBOARD background arrival: written to the pasteboard while in the background = \(read3 == t3)")
         shot("live-2-background")                       // shows the notification, when the write was not allowed
         app.activate()
         XCTAssertTrue(shows(app, t3, 20), "what arrived in the background is in the app after reopening it")
         waitFor(2) { false }
-        let read3b = UIPasteboard.general.string
+        let read3b = readPasteboard(app)
         allowPaste(app, seconds: 2)
         print("CLIPBOARD after reopening: pasteboard holds the background arrival = \(read3b == t3)")
         XCTAssertNil(peer.first("ev") { J.s($0, "text") == t3 }, "a received text is never echoed back")
@@ -168,7 +182,7 @@ final class CliportUITests: XCTestCase {
         if question.waitForExistence(timeout: 25) {
             question.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Take from")).firstMatch.tap()
             waitFor(2) { false }
-            let read6 = UIPasteboard.general.string
+            let read6 = readPasteboard(app)
             allowPaste(app, seconds: 2)
             print("CLIPBOARD conflict answered 'take from the other device': pasteboard holds it = \(read6 == remote2)")
             XCTAssertTrue(shows(app, remote2, 10))
