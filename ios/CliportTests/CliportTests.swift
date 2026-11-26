@@ -76,6 +76,7 @@ final class CliportTests: XCTestCase {
             var expected: [Int: Data] = [:]
             rx.clientIdBase = "scT" + AppInfo.randHex(4); tx.clientIdBase = "scT" + AppInfo.randHex(4)
             rx.subs = [topic]
+            tx.subs = [topic + "/unused"]            // a SUBSCRIBE without topics is a protocol error and gets the sender disconnected
             var any = 0
             rx.onMessage = { t, p in any += 1; if t == topic { received[p.count] = (expected[p.count] == p) } else { print("RELAY unexpected topic \(t)") } }
             rx.start(); tx.start()

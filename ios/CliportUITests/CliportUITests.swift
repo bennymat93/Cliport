@@ -77,7 +77,13 @@ final class CliportUITests: XCTestCase {
     }
     private final class PasteBox { var value: String?; var done = false }
     private func shows(_ app: XCUIApplication, _ text: String, _ seconds: TimeInterval) -> Bool {
-        app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", text)).firstMatch.waitForExistence(timeout: seconds)
+        let p = NSPredicate(format: "label CONTAINS %@", text)
+        let end = Date().addingTimeInterval(seconds)
+        repeat {
+            if app.staticTexts.matching(p).firstMatch.exists || app.buttons.matching(p).firstMatch.exists { return true }
+            waitFor(0.5) { false }
+        } while Date() < end
+        return app.descendants(matching: .any).matching(p).firstMatch.exists
     }
 
     func test3LiveSyncWithTheRealClipboard() {
