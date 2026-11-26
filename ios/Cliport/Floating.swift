@@ -16,6 +16,9 @@ final class Floating: NSObject, AVPictureInPictureControllerDelegate, AVPictureI
     private var drawn = ""
     private(set) var active = false                  // the window is floating right now
     var text = "Cliport"
+    /// A thin strip instead of the regular window. iOS sizes the window (and the tab with the arrow that is left when
+    /// it is pushed to the screen edge) from the picture's proportions: the wider the picture, the lower both are.
+    var slim = true { didSet { if slim != oldValue { lastBuffer = nil } } }
     var supported: Bool { AVPictureInPictureController.isPictureInPictureSupported() }
     var enabled: Bool { controller != nil }
 
@@ -50,7 +53,8 @@ final class Floating: NSObject, AVPictureInPictureControllerDelegate, AVPictureI
     /// One still picture per second keeps the "video" alive; it is redrawn only when the text changes.
     private var lastBuffer: CVPixelBuffer?
     private func frame() {
-        let w = 480, h = 120
+        let w = slim ? 600 : 480, h = slim ? 60 : 120
+        let font = UIFont.boldSystemFont(ofSize: slim ? 30 : 34)
         if drawn != text || lastBuffer == nil {
             var pb: CVPixelBuffer?
             let attrs: [CFString: Any] = [kCVPixelBufferCGImageCompatibilityKey: true, kCVPixelBufferCGBitmapContextCompatibilityKey: true,
@@ -64,8 +68,9 @@ final class Floating: NSObject, AVPictureInPictureControllerDelegate, AVPictureI
                 UIColor(red: 0.31, green: 0.27, blue: 0.90, alpha: 1).setFill()
                 ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
                 let style = NSMutableParagraphStyle(); style.alignment = .center
-                (text as NSString).draw(in: CGRect(x: 8, y: 38, width: w - 16, height: 50),
-                                        withAttributes: [.font: UIFont.boldSystemFont(ofSize: 34), .foregroundColor: UIColor.white, .paragraphStyle: style])
+                let lineH = ceil(font.lineHeight)
+                (text as NSString).draw(in: CGRect(x: 8, y: (CGFloat(h) - lineH) / 2, width: CGFloat(w - 16), height: lineH),
+                                        withAttributes: [.font: font,.foregroundColor: UIColor.white, .paragraphStyle: style])
                 UIGraphicsPopContext()
             }
             CVPixelBufferUnlockBaseAddress(buf, [])

@@ -91,7 +91,13 @@ final class Engine: ObservableObject {
         get { ud.bool(forKey: "floating") }
         set { ud.set(newValue, forKey: "floating"); objectWillChange.send(); applyFloating() }
     }
+    /// Thin strip (default) or the regular, taller window. The window is rebuilt so that iOS picks up the new proportions.
+    var floatingSlim: Bool {
+        get { ud.object(forKey: "floatingSlim") == nil ? true : ud.bool(forKey: "floatingSlim") }
+        set { ud.set(newValue, forKey: "floatingSlim"); objectWillChange.send(); Floating.shared.disable(); applyFloating() }
+    }
     func applyFloating() {
+        Floating.shared.slim = floatingSlim
         if floating && paired && !Recovery.safeMode { Floating.shared.enable() } else { Floating.shared.disable() }
     }
     private var seen = Set<String>()

@@ -321,6 +321,9 @@ struct SettingsView: View {
                             footer: Text(L.t("כשיוצאים מ-Cliport נפתח חלון צף קטן. כל עוד הוא מוצג, iOS מתייחס ל-Cliport כאפליקציה שעל המסך: מה שמועתק באייפון נשלח מיד, ומה שמגיע מהמחשב נכנס ללוח בלי לפתוח את האפליקציה. אפשר לגרור את החלון לקצה המסך כדי להסתיר אותו. כדי ש-iOS לא ישאל בכל פעם: הגדרות, Cliport, \"הדבקה מיישומים אחרים\": אפשר.",
                                              "When you leave Cliport a small floating window opens. While it is shown, iOS treats Cliport as an on-screen app: what you copy on the iPhone is sent at once, and what arrives from a PC lands on the clipboard without opening the app. Drag the window to the screen edge to hide it. To stop iOS asking every time: Settings, Cliport, \"Paste from Other Apps\": Allow."))) {
                         Toggle(L.t("חלון צף ביציאה מהאפליקציה", "Floating window when leaving the app"), isOn: Binding(get: { eng.floating }, set: { eng.floating = $0 }))
+                        if eng.floating {
+                            Toggle(L.t("חלון דק (חץ קטן בקצה המסך)", "Thin window (small arrow at the screen edge)"), isOn: Binding(get: { eng.floatingSlim }, set: { eng.floatingSlim = $0 }))
+                        }
                         if eng.floating { Button(L.t("פתח את החלון הצף עכשיו", "Open the floating window now")) { Floating.shared.startNow() } }
                     }
                 }
